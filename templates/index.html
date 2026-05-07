@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU实时监控</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        .gpu-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .gpu-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .gpu-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+        }
+        
+        .gpu-name {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .gpu-index {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        
+        .metric {
+            margin-bottom: 20px;
+        }
+        
+        .metric-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            color: #666;
+            font-size: 0.95em;
+            font-weight: 500;
+        }
+        
+        .metric-value {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            border-radius: 10px;
+            transition: width 0.3s ease;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 5px;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-good {
+            background-color: #4ade80;
+        }
+        
+        .status-warning {
+            background-color: #fbbf24;
+        }
+        
+        .status-danger {
+            background-color: #f87171;
+        }
+        
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+        
+        .timestamp {
+            text-align: center;
+            color: #999;
+            font-size: 0.9em;
+            margin-top: 20px;
+        }
+        
+        .error-message {
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #dc2626;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .stat-item {
+            background: #f3f4f6;
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .stat-label {
+            font-size: 0.75em;
+            color: #999;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+        
+        .stat-value {
+            font-size: 1.1em;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .update-info {
+            text-align: right;
+            color: #999;
+            font-size: 0.9em;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+            <h1>🖥️ GPU实时监控系统</h1>
+            <div>
+                <a href="/history" style="background:#fff;color:#0f66f0;padding:8px 12px;border-radius:8px;text-decoration:none;font-weight:600;box-shadow:0 4px 12px rgba(15,102,240,0.12);">历史查询</a>
+            </div>
+        </div>
+
+        <div class="error-message" id="errorMessage"></div>
+        <div id="highAlert" style="display:none;margin-top:12px;padding:12px;border-radius:8px;background:#fff4f4;color:#7f1d1d;border-left:4px solid #ef4444;">告警: GPU 显存使用率超过 90%</div>
+        
+        <div id="cpuCard" style="background:white;border-radius:15px;padding:25px;box-shadow:0 8px 32px rgba(0, 0, 0, 0.1);margin-bottom:20px;">
+            <div class="gpu-name">💻 系统 CPU 使用率</div>
+            <div class="metric">
+                <div class="metric-label">
+                    <span>CPU</span>
+                    <span class="metric-value" id="cpuPercent">--</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="cpuProgressFill" style="width:0%"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="gpu-grid" id="gpuContainer">
+            <div style="text-align: center; padding: 40px; color: white; font-size: 1.1em;">
+                正在加载GPU信息...
+            </div>
+        </div>
+        
+        <div class="timestamp" id="timestamp"></div>
+    </div>
+
+    <script>
+        let chart = null;
+        
+        function getStatusIndicator(utilization) {
+            if (utilization < 50) return 'status-good';
+            if (utilization < 80) return 'status-warning';
+            return 'status-danger';
+        }
+        
+        function formatMB(val) {
+            return (val || 0).toFixed(0) + ' MB';
+        }
+        
+        async function updateGPUInfo() {
+            try {
+                const response = await fetch('/api/gpu-info');
+                const data = await response.json();
+                
+                if (!data.gpus || data.gpus.length === 0) {
+                    document.getElementById('errorMessage').style.display = 'block';
+                    document.getElementById('errorMessage').textContent = '⚠️ 无法获取GPU信息，请确保已安装NVIDIA GPU和驱动程序';
+                    document.getElementById('gpuContainer').innerHTML = '';
+                    return;
+                }
+                
+                document.getElementById('errorMessage').style.display = 'none';
+                
+                let html = '';
+                data.gpus.forEach(gpu => {
+                    const gpuUtilStatus = getStatusIndicator(gpu.gpu_util);
+                    const memUtilStatus = getStatusIndicator(gpu.mem_util);
+                    
+                    html += `
+                        <div class="gpu-card">
+                            <div class="gpu-name">
+                                <span class="gpu-index">${gpu.index}</span>
+                                <span>${gpu.name}</span>
+                            </div>
+                            
+                            <div class="metric">
+                                <div class="metric-label">
+                                    <span>
+                                        <span class="status-indicator ${gpuUtilStatus}"></span>
+                                        GPU计算使用率
+                                    </span>
+                                    <span class="metric-value">${gpu.gpu_util.toFixed(1)}%</span>
+                                </div>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: ${gpu.gpu_util}%"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="metric">
+                                <div class="metric-label">
+                                    <span>
+                                        <span class="status-indicator ${memUtilStatus}"></span>
+                                        显存使用率
+                                    </span>
+                                    <span class="metric-value">${gpu.mem_util.toFixed(1)}%</span>
+                                </div>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: ${gpu.mem_util}%"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="stats-grid">
+                                <div class="stat-item">
+                                    <div class="stat-label">显存</div>
+                                    <div class="stat-value">${formatMB(gpu.mem_used)}/${(gpu.mem_total||0).toFixed(0)} MB</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-label">温度</div>
+                                    <div class="stat-value">${gpu.temp.toFixed(1)}°C</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-label">功耗</div>
+                                    <div class="stat-value">${gpu.power.toFixed(1)}W</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-label">状态</div>
+                                    <div class="stat-value" style="color: ${gpu.gpu_util > 0 ? '#667eea' : '#999'}">
+                                        ${gpu.gpu_util > 0 ? '工作中' : '空闲'}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                document.getElementById('gpuContainer').innerHTML = html;
+                document.getElementById('timestamp').textContent = `最后更新: ${new Date().toLocaleTimeString('zh-CN')}`;
+                // CPU 显示
+                if (data.cpu_util !== undefined) {
+                    document.getElementById('cpuPercent').textContent = data.cpu_util.toFixed(1) + '%';
+                    document.getElementById('cpuProgressFill').style.width = Math.min(data.cpu_util, 100) + '%';
+                }
+                // 告警处理：基于显存使用率 >= 90%
+                const anyHigh = data.gpus.some(g => (g.mem_util||0) >= 90);
+                document.getElementById('highAlert').style.display = anyHigh ? 'block' : 'none';
+                
+            } catch (error) {
+                console.error('Error fetching GPU info:', error);
+                document.getElementById('errorMessage').style.display = 'block';
+                document.getElementById('errorMessage').textContent = '❌ 连接错误: ' + error.message;
+            }
+        }
+        
+        // 初始加载
+        updateGPUInfo();
+        
+        // 每秒更新一次
+        setInterval(updateGPUInfo, 1000);
+    </script>
+</body>
+</html>

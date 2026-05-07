@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU历史数据查询</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/modern-css-reset/dist/reset.min.css">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:#f6f8fb; color:#111; padding:24px; }
+        .container { max-width:1100px; margin:0 auto; background:white; border-radius:8px; padding:20px; box-shadow:0 6px 24px rgba(16,24,40,0.08); }
+        h2 { margin-bottom:12px; }
+        .controls { display:flex; gap:12px; align-items:center; margin-bottom:14px; }
+        input[type=datetime-local], select { padding:8px 10px; border-radius:6px; border:1px solid #dde3ea; }
+        button { background:#0f66f0; color:white; border:none; padding:10px 14px; border-radius:6px; cursor:pointer; }
+        .alert { padding:12px; border-radius:6px; background:#fff4f4; color:#7f1d1d; margin-bottom:12px; display:none; }
+        #chartWrap { margin-top:18px; }
+        table { width:100%; border-collapse:collapse; margin-top:14px; }
+        th,td { padding:8px 10px; border-bottom:1px solid #eef2f7; text-align:left; font-size:0.95rem; }
+        th { background:#fafbfd; font-weight:600; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+            <h2>GPU 历史查询</h2>
+            <div><a href="/" style="color:#0f66f0; text-decoration:none;">返回实时监控</a></div>
+        </div>
+
+        <div class="alert" id="alertBox"></div>
+
+        <div class="controls">
+            <label>开始: <input id="start" type="datetime-local"></label>
+            <label>结束: <input id="end" type="datetime-local"></label>
+            <label>GPU: 
+                <select id="gpu">
+                    <option value="all">全部</option>
+                    <option value="0">GPU0</option>
+                    <option value="1">GPU1</option>
+                </select>
+            </label>
+            <button id="queryBtn">查询</button>
+        </div>
+
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;">
+            <span style="color:#666;font-size:0.95rem;margin-right:6px">快捷:</span>
+            <button id="btn1h" style="background:#eef5ff;color:#0f66f0;padding:6px 10px;border-radius:6px;border:1px solid #d7e6ff">最近1小时</button>
+            <button id="btn24h" style="background:#eef5ff;color:#0f66f0;padding:6px 10px;border-radius:6px;border:1px solid #d7e6ff">最近24小时</button>
+            <button id="btn7d" style="background:#eef5ff;color:#0f66f0;padding:6px 10px;border-radius:6px;border:1px solid #d7e6ff">最近7天</button>
+        </div>
+
+        <div id="chartWrap">
+            <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;">
+                <span style="color:#666;font-size:0.95rem">图表类型:</span>
+                <button id="btnMemChart" style="background:#0f66f0;color:white;padding:6px 12px;border-radius:6px;border:none;cursor:pointer;font-weight:600">显存占用(MB)</button>
+                <button id="btnGpuChart" style="background:#eef5ff;color:#0f66f0;padding:6px 12px;border-radius:6px;border:1px solid #d7e6ff;cursor:pointer;">计算使用率(%)</button>
+            </div>
+            <canvas id="gpuChart" height="120"></canvas>
+        </div>
+
+        <div id="tableWrap">
+            <table id="resultTable">
+                <thead>
+                    <tr><th>时间</th><th>CPU(%)</th><th>显存(used/total MB)</th><th>温度(°C)</th><th>功耗(W)</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:12px;flex-wrap:wrap;">
+                <div id="pageInfo" style="color:#666;font-size:0.95rem;">第 1 / 1 页，共 0 条</div>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <button id="btnFirstPage" style="background:#eef5ff;color:#0f66f0;padding:6px 10px;border-radius:6px;border:1px solid #d7e6ff;cursor:pointer;">首页</button>
+                    <button id="btnPrevPage" style="background:#eef5ff;color:#0f66f0;padding:6px 10px;border-radius:6px;border:1px solid #d7e6ff;cursor:pointer;">上一页</button>
+                    <button id="btnNextPage" style="background:#eef5ff;color:#0f66f0;padding:6px 10px;border-radius:6px;border:1px solid #d7e6ff;cursor:pointer;">下一页</button>
+                    <button id="btnLastPage" style="background:#eef5ff;color:#0f66f0;padding:6px 10px;border-radius:6px;border:1px solid #d7e6ff;cursor:pointer;">末页</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        const queryBtn = document.getElementById('queryBtn');
+        const alertBox = document.getElementById('alertBox');
+        const tableBody = document.querySelector('#resultTable tbody');
+        const pageInfo = document.getElementById('pageInfo');
+        let chart = null;
+        let currentChartData = [];  // 保存当前查询图表数据
+        let chartMode = 'mem';  // 'mem' 或 'gpu'
+        let currentPage = 1;
+        let totalPages = 1;
+        let totalRows = 0;
+        let currentFilters = { start: null, end: null, gpu: 'all' };
+        const pageSize = 100;
+        const sampleSize = 100;
+
+        function isoForInput(dtLocalStr) {
+            // datetime-local returns local without seconds timezone; convert to 'YYYY-MM-DD HH:MM:SS' expected by backend
+            if (!dtLocalStr) return null;
+            const s = dtLocalStr.replace('T', ' ');
+            return s + ':00';
+        }
+
+        function showAlert(msg) {
+            alertBox.style.display = 'block';
+            alertBox.textContent = msg;
+        }
+        function hideAlert() { alertBox.style.display = 'none'; }
+
+        function renderTable(rows) {
+            tableBody.innerHTML = '';
+            rows.forEach(r => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${r.ts}</td><td>${(r.cpu_util||0).toFixed(1)}</td><td>${(r.mem_used||0).toFixed(0)} / ${(r.mem_total||0).toFixed(0)} MB</td><td>${(r.temp||0).toFixed(1)}</td><td>${(r.power||0).toFixed(1)}</td>`;
+                tableBody.appendChild(tr);
+            });
+        }
+
+        function buildVisibleTickSet(labelCount, maxLabels = 7) {
+            const visible = new Set();
+            if (labelCount <= 0) return visible;
+            if (labelCount === 1) {
+                visible.add(0);
+                return visible;
+            }
+
+            const targetCount = Math.min(maxLabels, labelCount);
+            for (let i = 0; i < targetCount; i++) {
+                const idx = Math.round(i * (labelCount - 1) / (targetCount - 1));
+                visible.add(idx);
+            }
+            visible.add(0);
+            visible.add(labelCount - 1);
+            return visible;
+        }
+
+        function renderChart(rows) {
+            const chartRows = rows;
+            const labels = chartRows.map(r => r.ts);
+            const visibleTickSet = buildVisibleTickSet(labels.length, 7);
+            const datasetsByGpu = {};
+            chartRows.forEach(r => {
+                const k = 'GPU ' + r.gpu_index;
+                if (!datasetsByGpu[k]) {
+                    datasetsByGpu[k] = {
+                        label: k,
+                        data: [],
+                        borderColor: null,
+                        fill: false,
+                        dataMax: 0,
+                        tension: 0.35,
+                        cubicInterpolationMode: 'monotone',
+                        pointRadius: 0,
+                        pointHoverRadius: 0,
+                        pointHitRadius: 8,
+                        borderWidth: 2
+                    };
+                }
+                // 根据模式选择数据
+                if (chartMode === 'mem') {
+                    datasetsByGpu[k].data.push(r.mem_used || 0);
+                    datasetsByGpu[k].dataMax = Math.max(datasetsByGpu[k].dataMax || 0, r.mem_total || 0);
+                } else {
+                    datasetsByGpu[k].data.push(r.gpu_util || 0);
+                    datasetsByGpu[k].dataMax = 100;  // GPU利用率最大100%
+                }
+            });
+            
+            const colors = ['#0f66f0','#f97316','#10b981','#a78bfa','#ef4444','#06b6d4'];
+            let i=0;
+            const datasets = Object.keys(datasetsByGpu).map(k => {
+                const d = datasetsByGpu[k];
+                d.borderColor = colors[i % colors.length];
+                i++;
+                return d;
+            });
+            
+            const ctx = document.getElementById('gpuChart').getContext('2d');
+            if (chart) chart.destroy();
+            
+            let yMax = 0;
+            datasets.forEach(ds => { yMax = Math.max(yMax, ds.dataMax || 0, ...ds.data); });
+            if (yMax === 0) yMax = undefined;
+            
+            const yAxisTitle = chartMode === 'mem' ? 'Memory (MB)' : 'GPU Utilization (%)';
+            const yAxisConfig = chartMode === 'mem' 
+                ? { beginAtZero:true, title:{display:true, text: yAxisTitle}, ...(yMax?{max: Math.ceil(yMax)}:{}) }
+                : { beginAtZero:true, max:100, title:{display:true, text: yAxisTitle} };
+            
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    responsive:true,
+                    interaction:{mode:'index', intersect:false},
+                    scales:{
+                        x: {
+                            title: { display: true, text: '时间（均匀采样）' },
+                            ticks: {
+                                autoSkip: false,
+                                maxRotation: 45,
+                                minRotation: 45,
+                                callback: function(value, index, ticks) {
+                                    return visibleTickSet.has(index) ? labels[index] : '';
+                                }
+                            }
+                        },
+                        y: yAxisConfig
+                    }
+                }
+            });
+        }
+
+        queryBtn.addEventListener('click', async () => {
+            hideAlert();
+            currentFilters.start = isoForInput(document.getElementById('start').value);
+            currentFilters.end = isoForInput(document.getElementById('end').value);
+            currentFilters.gpu = document.getElementById('gpu').value;
+            currentPage = 1;
+            await Promise.all([
+                loadTablePage(1),
+                loadChartSample()
+            ]);
+        });
+
+        async function loadTablePage(page = 1) {
+            const params = new URLSearchParams();
+            if (currentFilters.start) params.append('start', currentFilters.start);
+            if (currentFilters.end) params.append('end', currentFilters.end);
+            if (currentFilters.gpu) params.append('gpu', currentFilters.gpu);
+            params.append('page', page);
+            params.append('page_size', pageSize);
+
+            try {
+                const res = await fetch('/api/query-history?' + params.toString());
+                const payload = await res.json();
+                if (payload.error) { showAlert('查询出错: ' + payload.error); return; }
+                const data = payload.items || [];
+                currentPage = payload.page || page;
+                totalPages = payload.total_pages || 1;
+                totalRows = payload.total || 0;
+
+                if (!Array.isArray(data) || data.length === 0) {
+                    showAlert('未查询到数据');
+                    renderTable([]);
+                    updatePageInfo();
+                    return;
+                }
+                renderTable(data);
+                updatePageInfo();
+            } catch (e) {
+                showAlert('请求失败: ' + e.message);
+            }
+        }
+
+        async function loadChartSample() {
+            const params = new URLSearchParams();
+            if (currentFilters.start) params.append('start', currentFilters.start);
+            if (currentFilters.end) params.append('end', currentFilters.end);
+            if (currentFilters.gpu) params.append('gpu', currentFilters.gpu);
+            params.append('sample_size', sampleSize);
+
+            try {
+                const res = await fetch('/api/query-history-chart?' + params.toString());
+                const payload = await res.json();
+                if (payload.error) { showAlert('查询出错: ' + payload.error); return; }
+                currentChartData = payload.items || [];
+                if (!Array.isArray(currentChartData) || currentChartData.length === 0) {
+                    if (chart) { chart.destroy(); chart = null; }
+                    return;
+                }
+                renderChart(currentChartData);
+            } catch (e) {
+                showAlert('请求失败: ' + e.message);
+            }
+        }
+
+        function updatePageInfo() {
+            pageInfo.textContent = `第 ${currentPage} / ${totalPages} 页，共 ${totalRows} 条，每页最多 ${pageSize} 条`;
+            document.getElementById('btnFirstPage').disabled = currentPage <= 1;
+            document.getElementById('btnPrevPage').disabled = currentPage <= 1;
+            document.getElementById('btnNextPage').disabled = currentPage >= totalPages;
+            document.getElementById('btnLastPage').disabled = currentPage >= totalPages;
+        }
+
+        // 快捷时间范围按钮
+        function setRangeHours(hours) {
+            const end = new Date();
+            const start = new Date(end.getTime() - hours * 3600 * 1000);
+            // format to datetime-local value
+            function toLocalInput(d){
+                const pad=(n)=>n.toString().padStart(2,'0');
+                return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
+            }
+            document.getElementById('start').value = toLocalInput(start);
+            document.getElementById('end').value = toLocalInput(end);
+            document.getElementById('queryBtn').click();
+        }
+
+        document.getElementById('btn1h').addEventListener('click', ()=>setRangeHours(1));
+        document.getElementById('btn24h').addEventListener('click', ()=>setRangeHours(24));
+        document.getElementById('btn7d').addEventListener('click', ()=>setRangeHours(24*7));
+
+        // 图表切换按钮
+        document.getElementById('btnMemChart').addEventListener('click', () => {
+            chartMode = 'mem';
+            document.getElementById('btnMemChart').style.background = '#0f66f0';
+            document.getElementById('btnMemChart').style.color = 'white';
+            document.getElementById('btnMemChart').style.borderColor = 'transparent';
+            document.getElementById('btnGpuChart').style.background = '#eef5ff';
+            document.getElementById('btnGpuChart').style.color = '#0f66f0';
+            document.getElementById('btnGpuChart').style.borderColor = '#d7e6ff';
+            if (currentData.length > 0) renderChart(currentData);
+        });
+
+        document.getElementById('btnGpuChart').addEventListener('click', () => {
+            chartMode = 'gpu';
+            document.getElementById('btnMemChart').style.background = '#eef5ff';
+            document.getElementById('btnMemChart').style.color = '#0f66f0';
+            document.getElementById('btnMemChart').style.borderColor = '#d7e6ff';
+            document.getElementById('btnGpuChart').style.background = '#0f66f0';
+            document.getElementById('btnGpuChart').style.color = 'white';
+            document.getElementById('btnGpuChart').style.borderColor = 'transparent';
+            if (currentChartData.length > 0) renderChart(currentChartData);
+        });
+
+        document.getElementById('btnFirstPage').addEventListener('click', () => {
+            if (currentPage > 1) loadTablePage(1);
+        });
+        document.getElementById('btnPrevPage').addEventListener('click', () => {
+            if (currentPage > 1) loadTablePage(currentPage - 1);
+        });
+        document.getElementById('btnNextPage').addEventListener('click', () => {
+            if (currentPage < totalPages) loadTablePage(currentPage + 1);
+        });
+        document.getElementById('btnLastPage').addEventListener('click', () => {
+            if (currentPage < totalPages) loadTablePage(totalPages);
+        });
+
+        // 页面首次打开默认最近1小时
+        window.addEventListener('load', () => {
+            setRangeHours(1);
+        });
+    </script>
+</body>
+</html>
