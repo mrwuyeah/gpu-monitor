@@ -13,7 +13,7 @@
         
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #eef6ff 0%, #dbeafe 35%, #e0f2fe 100%);
             min-height: 100vh;
             padding: 20px;
         }
@@ -192,10 +192,11 @@
 </head>
 <body>
     <div class="container">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
             <h1>🖥️ GPU实时监控系统</h1>
-            <div>
+            <div style="display:flex;gap:8px;">
                 <a href="/history" style="background:#fff;color:#0f66f0;padding:8px 12px;border-radius:8px;text-decoration:none;font-weight:600;box-shadow:0 4px 12px rgba(15,102,240,0.12);">历史查询</a>
+                <a href="/console" style="background:#0f66f0;color:#fff;padding:8px 12px;border-radius:8px;text-decoration:none;font-weight:600;box-shadow:0 4px 12px rgba(15,102,240,0.22);">控制台</a>
             </div>
         </div>
 
@@ -211,6 +212,44 @@
                 </div>
                 <div class="progress-bar">
                     <div class="progress-fill" id="cpuProgressFill" style="width:0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="vllmCard" style="background:white;border-radius:15px;padding:25px;box-shadow:0 8px 32px rgba(0, 0, 0, 0.1);margin-bottom:20px;display:none;">
+            <div class="gpu-name">⚙️ vLLM 实例指标</div>
+            <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
+                <div class="stat-item">
+                    <div class="stat-label">运行中</div>
+                    <div class="stat-value" id="vllmRunning">--</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">排队中</div>
+                    <div class="stat-value" id="vllmWaiting">--</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">KV缓存</div>
+                    <div class="stat-value" id="vllmKv">--</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">总请求</div>
+                    <div class="stat-value" id="vllmTotalReqs">--</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Prompt Tokens</div>
+                    <div class="stat-value" id="vllmPromptTokens">--</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">生成 Tokens</div>
+                    <div class="stat-value" id="vllmGenTokens">--</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">缓存命中率</div>
+                    <div class="stat-value" id="vllmCacheHit">--</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">模型</div>
+                    <div class="stat-value" id="vllmModel" style="font-size:0.85em;word-break:break-all;">--</div>
                 </div>
             </div>
         </div>
@@ -262,7 +301,7 @@
                                 <span class="gpu-index">${gpu.index}</span>
                                 <span>${gpu.name}</span>
                             </div>
-                            
+
                             <div class="metric">
                                 <div class="metric-label">
                                     <span>
@@ -275,7 +314,7 @@
                                     <div class="progress-fill" style="width: ${gpu.gpu_util}%"></div>
                                 </div>
                             </div>
-                            
+
                             <div class="metric">
                                 <div class="metric-label">
                                     <span>
@@ -288,7 +327,7 @@
                                     <div class="progress-fill" style="width: ${gpu.mem_util}%"></div>
                                 </div>
                             </div>
-                            
+
                             <div class="stats-grid">
                                 <div class="stat-item">
                                     <div class="stat-label">显存</div>
@@ -309,6 +348,58 @@
                                     </div>
                                 </div>
                             </div>
+
+                            <div style="margin-top:16px;border-top:1px solid #e6efff;padding-top:12px;">
+                                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                                    <div style="font-weight:700;color:#1f3b77;letter-spacing:0.2px;">vLLM 进程</div>
+                                    <div style="font-size:12px;color:#6b7a99;">仅展示识别为 vLLM 的进程</div>
+                                </div>
+                                ${(() => {
+                                    const ps = (gpu.vllm_processes || []);
+                                    if (!ps.length) {
+                                        return `<div style="color:#94a3b8;font-size:13px;">未检测到 vLLM 进程</div>`;
+                                    }
+                                    const rows = ps.map(p => {
+                                        const model = p.model_name ? p.model_name : (p.model ? p.model : '-');
+                                        const mem = (p.used_memory_mb ?? 0).toFixed(0);
+                                        const cmd = p.cmdline ? p.cmdline : '';
+                                        const cmdShort = cmd.length > 80 ? (cmd.slice(0, 80) + '') : cmd;
+                                        const running = p.running !== undefined && p.running !== null ? p.running.toFixed(0) : '-';
+                                        const waiting = p.waiting !== undefined && p.waiting !== null ? p.waiting.toFixed(0) : '-';
+                                        const kv = p.kv_usage !== undefined && p.kv_usage !== null ? (p.kv_usage * 100).toFixed(1) + '%' : '-';
+                                        const crossGpuLabel = p.is_cross_gpu && p.gpu_indices ? `<span style="background:#e0f2fe;color:#0369a1;font-size:10px;padding:1px 5px;border-radius:3px;white-space:nowrap;">跨卡 GPU ${p.gpu_indices.join(',')}</span>` : '<span style="color:#94a3b8;font-size:11px;">单卡</span>';
+                                        return `<tr>
+                                            <td style="padding:6px 8px;white-space:nowrap;">${p.pid}</td>
+                                            <td style="padding:6px 8px;white-space:nowrap;">${mem} MB</td>
+                                            <td style="padding:6px 8px;white-space:nowrap;">${running}</td>
+                                            <td style="padding:6px 8px;white-space:nowrap;">${waiting}</td>
+                                            <td style="padding:6px 8px;white-space:nowrap;">${kv}</td>
+                                            <td style="padding:6px 8px;word-break:break-all;">${model}</td>
+                                            <td style="padding:6px 8px;color:#64748b;word-break:break-all;" title="${cmd.replaceAll('"','&quot;')}">${cmdShort.replaceAll('"','&quot;')}</td>
+                                            <td style="padding:6px 8px;white-space:nowrap;">${crossGpuLabel}</td>
+                                        </tr>`;
+                                    }).join('');
+                                    return `<div style="overflow:auto;border:1px solid #e6efff;border-radius:10px;">
+                                        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                                            <thead style="background:#f3f8ff;color:#1f3b77;">
+                                                <tr>
+                                                    <th style="text-align:left;padding:6px 8px;position:sticky;top:0;">PID</th>
+                                                    <th style="text-align:left;padding:6px 8px;position:sticky;top:0;">显存</th>
+                                                    <th style="text-align:left;padding:6px 8px;position:sticky;top:0;">运行中</th>
+                                                    <th style="text-align:left;padding:6px 8px;position:sticky;top:0;">排队中</th>
+                                                    <th style="text-align:left;padding:6px 8px;position:sticky;top:0;">KV缓存</th>
+                                                    <th style="text-align:left;padding:6px 8px;position:sticky;top:0;">模型</th>
+                                                    <th style="text-align:left;padding:6px 8px;position:sticky;top:0;">命令行</th>
+                                                    <th style="text-align:left;padding:6px 8px;position:sticky;top:0;">所在卡</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                ${rows}
+                                            </tbody>
+                                        </table>
+                                    </div>`;
+                                })()}
+                            </div>
                         </div>
                     `;
                 });
@@ -323,7 +414,54 @@
                 // 告警处理：基于显存使用率 >= 90%
                 const anyHigh = data.gpus.some(g => (g.mem_util||0) >= 90);
                 document.getElementById('highAlert').style.display = anyHigh ? 'block' : 'none';
-                
+
+                // vLLM 实例级指标：汇总所有 vLLM 进程（按 metrics_url 去重）
+                let hasMetrics = false;
+                let aggRunning = 0, aggWaiting = 0, aggTotalReqs = 0, aggPromptTokens = 0, aggGenTokens = 0;
+                let kvSum = 0, kvCount = 0, cacheHitSum = 0, cacheHitCount = 0;
+                const modelSet = new Set();
+                const seenUrls = new Set();
+                if (data.gpus) {
+                    for (const gpu of data.gpus) {
+                        const procs = gpu.vllm_processes || [];
+                        for (const p of procs) {
+                            const url = p.metrics_url;
+                            if (!url || seenUrls.has(url)) continue;
+                            seenUrls.add(url);
+                            if (p.running !== undefined || p.total_requests !== undefined) {
+                                hasMetrics = true;
+                                aggRunning += (p.running || 0);
+                                aggWaiting += (p.waiting || 0);
+                                if (p.kv_usage !== undefined && p.kv_usage !== null) {
+                                    kvSum += p.kv_usage; kvCount++;
+                                }
+                                aggTotalReqs += (p.total_requests || 0);
+                                aggPromptTokens += (p.prompt_tokens || 0);
+                                aggGenTokens += (p.generation_tokens || 0);
+                                if (p.cache_hit_rate !== undefined && p.cache_hit_rate !== null) {
+                                    cacheHitSum += p.cache_hit_rate; cacheHitCount++;
+                                }
+                                if (p.model_name) modelSet.add(p.model_name);
+                            }
+                        }
+                    }
+                }
+                const vllmCard = document.getElementById('vllmCard');
+                if (hasMetrics) {
+                    vllmCard.style.display = 'block';
+                    const fmtNum = (v) => v !== undefined && v !== null ? Number(v).toLocaleString() : '-';
+                    document.getElementById('vllmRunning').textContent = fmtNum(aggRunning);
+                    document.getElementById('vllmWaiting').textContent = fmtNum(aggWaiting);
+                    document.getElementById('vllmKv').textContent = kvCount > 0 ? (kvSum / kvCount * 100).toFixed(1) + '%' : '-';
+                    document.getElementById('vllmTotalReqs').textContent = fmtNum(aggTotalReqs);
+                    document.getElementById('vllmPromptTokens').textContent = fmtNum(aggPromptTokens);
+                    document.getElementById('vllmGenTokens').textContent = fmtNum(aggGenTokens);
+                    document.getElementById('vllmCacheHit').textContent = cacheHitCount > 0 ? (cacheHitSum / cacheHitCount * 100).toFixed(1) + '%' : '-';
+                    document.getElementById('vllmModel').textContent = modelSet.size > 0 ? [...modelSet].join(', ') : '-';
+                } else {
+                    vllmCard.style.display = 'none';
+                }
+
             } catch (error) {
                 console.error('Error fetching GPU info:', error);
                 document.getElementById('errorMessage').style.display = 'block';

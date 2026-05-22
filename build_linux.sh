@@ -50,6 +50,7 @@ python3 -m PyInstaller \
     --hidden-import=itsdangerous \
     --hidden-import=click \
     --hidden-import=markupsafe \
+    --hidden-import=psutil \
     --name gpu_monitor \
     app.py
 

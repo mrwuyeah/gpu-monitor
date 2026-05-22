@@ -57,6 +57,7 @@ python -m PyInstaller ^
     --hidden-import itsdangerous ^
     --hidden-import click ^
     --hidden-import markupsafe ^
+    --hidden-import psutil ^
     app.py
 
 if errorlevel 1 (

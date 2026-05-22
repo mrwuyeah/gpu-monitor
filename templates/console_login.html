@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>登录 - 本地控制台</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #eef6ff 0%, #dbeafe 35%, #e0f2fe 100%);
+      min-height: 100vh;
+      display:flex; align-items:center; justify-content:center;
+      padding: 24px;
+      color: #0f172a;
+    }
+    .card {
+      width: 420px;
+      background:#ffffff;
+      border: 1px solid #e6efff;
+      border-radius: 14px;
+      box-shadow: 0 10px 28px rgba(15, 102, 240, 0.10);
+      padding: 22px;
+    }
+    .title { font-size: 18px; font-weight: 900; color:#0b2a5b; }
+    .muted { color:#64748b; font-size: 13px; margin-top: 8px; }
+    label { display:block; font-size:12px; color:#49618a; margin-top: 14px; margin-bottom:6px; font-weight:700; }
+    input {
+      width:100%; padding:10px 12px; border-radius:10px;
+      border:1px solid #d9e6ff; outline:none;
+      background:#fbfdff;
+    }
+    input:focus { border-color:#60a5fa; box-shadow:0 0 0 3px rgba(96,165,250,.18); }
+    .btn {
+      width:100%;
+      margin-top: 16px;
+      border: 1px solid #2b7bff;
+      background: linear-gradient(180deg, #2b7bff 0%, #0f66f0 100%);
+      color:#fff;
+      padding: 11px 14px;
+      border-radius: 10px;
+      font-weight: 900;
+      cursor: pointer;
+      box-shadow: 0 10px 20px rgba(15,102,240,.22);
+    }
+    .err {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background:#fff1f2;
+      border: 1px solid #fecaca;
+      color:#9f1239;
+      font-size: 13px;
+      display: {{ 'block' if error else 'none' }};
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="title">本地控制台登录</div>
+    <div class="muted">默认账号/密码：admin / admin（建议首次登录后修改）。</div>
+
+    <div class="err">{{ error }}</div>
+
+    <form method="post" action="/console/login">
+      <label>账号</label>
+      <input name="username" placeholder="admin" value="admin" autocomplete="username" />
+
+      <label>密码</label>
+      <input name="password" type="password" placeholder="admin" value="admin" autocomplete="current-password" />
+
+      <button class="btn" type="submit">登录</button>
+    </form>
+  </div>
+</body>
+</html>
