@@ -10,7 +10,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['PyQt5', 'PySide6', 'PySide2', 'matplotlib', 'IPython', 'jedi', 'sphinx', 'nbformat', 'black', 'zmq'],
     noarchive=False,
     optimize=0,
 )

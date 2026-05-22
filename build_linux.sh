@@ -26,7 +26,7 @@ python3 -m pip install -r requirements.txt
 echo "[2/5] 检查PyInstaller..."
 if ! python3 -m pip show pyinstaller &> /dev/null; then
     echo "[2/5] 正在安装PyInstaller..."
-    pip3 install pyinstaller
+    python3 -m pip install pyinstaller
 else
     echo "[2/5] PyInstaller已安装"
 fi
@@ -41,6 +41,8 @@ echo "这个过程可能需要2-3分钟，请耐心等待..."
 echo ""
 
 python3 -m PyInstaller \
+    --noconfirm \
+    --clean \
     --onefile \
     --console \
     --add-data "templates:templates" \

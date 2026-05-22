@@ -75,8 +75,14 @@ chmod +x dist/gpu_monitor
 
 ### 方式2：后台运行（推荐长期监控）
 ```bash
-# 在后台运行
+# 在后台运行（默认端口5000）
 nohup ./dist/gpu_monitor > gpu_monitor.log 2>&1 &
+
+# 在后台运行（指定端口5001）
+nohup ./dist/gpu_monitor --port 5001 > gpu_monitor.log 2>&1 &
+
+# 在后台运行（指定地址和端口）
+nohup ./dist/gpu_monitor --host 0.0.0.0 --port 5001 > gpu_monitor.log 2>&1 &
 
 # 查看日志
 tail -f gpu_monitor.log

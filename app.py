@@ -400,6 +400,39 @@ def get_vllm_processes_by_gpu(gpus):
                 continue
 
         if not pid_gpu_list:
+            # Fallback: --query-compute-apps 返回空（新版驱动已废弃），通过 psutil 扫描 vLLM 进程
+            try:
+                for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                    try:
+                        c = proc.info['cmdline'] or []
+                        n = proc.info['name'] or ''
+                        hay = ' '.join(c) + ' ' + n
+                        if 'vllm' not in hay.lower():
+                            continue
+                        pid = proc.info['pid']
+                        # 尝试通过 CUDA_VISIBLE_DEVICES 确定 GPU
+                        try:
+                            env = proc.environ()
+                            cuda_dev = env.get('CUDA_VISIBLE_DEVICES', '')
+                        except (psutil.AccessDenied, psutil.NoSuchProcess):
+                            cuda_dev = ''
+                        if cuda_dev:
+                            for dev_id in cuda_dev.split(','):
+                                try:
+                                    gpu_idx = int(dev_id.strip())
+                                    pid_gpu_list.setdefault(pid, []).append((gpu_idx, 0))
+                                except ValueError:
+                                    pass
+                        else:
+                            # 无法确定 GPU，关联到所有可用 GPU
+                            for g in gpus:
+                                pid_gpu_list.setdefault(pid, []).append((g.get("index"), 0))
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        continue
+            except Exception:
+                pass
+
+        if not pid_gpu_list:
             return result
 
         # 获取每张 GPU 的总显存使用量（用于 compute-apps 显存为 N/A 时的回退）
@@ -471,17 +504,9 @@ def get_vllm_processes_by_gpu(gpus):
             model_name = _extract_model_from_cmdline(cmdline)
             metrics_url = _find_vllm_port(cmdline, pid)
 
-            used_memory_mb = max(m for _, m in gpu_list)
-
-            # 如果 nvidia-smi compute-apps 显存为 N/A(0)，尝试用 GPU 总显存用量回退估算
-            if used_memory_mb == 0:
-                for gpu_idx_tmp, _ in gpu_list:
-                    gpu_zero_mem_count[gpu_idx_tmp] = gpu_zero_mem_count.get(gpu_idx_tmp, 0) + 1
-
             proc_info = {
                 "pid": pid,
                 "name": proc_name,
-                "used_memory_mb": used_memory_mb,
                 "model_name": model_name,
                 "cmdline": " ".join(cmdline),
                 "metrics_url": metrics_url,
@@ -504,9 +529,13 @@ def get_vllm_processes_by_gpu(gpus):
             proc_info["gpu_indices"] = gpu_indices
             proc_info["is_cross_gpu"] = len(gpu_indices) > 1
 
-            # 添加到该进程所在的每张 GPU
-            for gpu_idx, _ in gpu_list:
-                result[gpu_idx].append(proc_info)
+            # 添加到该进程所在的每张 GPU（每张卡独立拷贝，避免共享 dict 导致的互相覆盖）
+            for gpu_idx, gpu_mem in gpu_list:
+                if gpu_mem == 0:
+                    gpu_zero_mem_count[gpu_idx] = gpu_zero_mem_count.get(gpu_idx, 0) + 1
+                gpu_proc_info = dict(proc_info)
+                gpu_proc_info["used_memory_mb"] = gpu_mem
+                result[gpu_idx].append(gpu_proc_info)
 
         # 回退：对于显存为 N/A 的进程，用 GPU 总显存用量 / 进程数 估算
         if gpu_zero_mem_count:
@@ -581,15 +610,6 @@ def monitor_gpu(sample_interval_seconds=10):
             print(f"Monitor error: {e}")
             time.sleep(sample_interval_seconds)
 
-@app.route("/")
-def index():
-    """主页"""
-    response = make_response(render_template("index.html"))
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
-
 def _login_required(fn):
     def wrapper(*args, **kwargs):
         if not session.get("console_user"):
@@ -598,6 +618,19 @@ def _login_required(fn):
 
     wrapper.__name__ = fn.__name__
     return wrapper
+
+
+@app.route("/")
+@_login_required
+def index():
+    """主页"""
+    response = make_response(render_template("index.html"))
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
 
 
 def _get_console_user(username):
@@ -611,7 +644,7 @@ def _get_console_user(username):
 def console_login():
     if request.method == "GET":
         if session.get("console_user"):
-            return redirect(url_for("console_index"))
+            return redirect(url_for("index"))
         return make_response(render_template("console_login.html", error=None))
 
     username = (request.form.get("username") or "").strip()
@@ -626,7 +659,7 @@ def console_login():
         return make_response(render_template("console_login.html", error="账号或密码错误"))
 
     session["console_user"] = db_user
-    return redirect(url_for("console_index"))
+    return redirect(url_for("index"))
 
 
 @app.route("/console/logout", methods=["POST"])
@@ -850,6 +883,7 @@ def get_alerts():
 
 
 @app.route('/history')
+@_login_required
 def history_page():
     response = make_response(render_template('history.html'))
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
