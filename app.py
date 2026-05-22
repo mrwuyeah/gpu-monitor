@@ -402,6 +402,21 @@ def get_vllm_processes_by_gpu(gpus):
         if not pid_gpu_list:
             return result
 
+        # 获取每张 GPU 的总显存使用量（用于 compute-apps 显存为 N/A 时的回退）
+        gpu_total_used = {}
+        try:
+            mem_cmd = ["nvidia-smi", "--query-gpu=index,memory.used", "--format=csv,noheader,nounits"]
+            mem_out = subprocess.check_output(mem_cmd, timeout=5).decode("utf-8", errors="replace").strip()
+            for line in mem_out.strip().split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split(",")
+                if len(parts) >= 2:
+                    gpu_total_used[int(parts[0].strip())] = float(parts[1].strip())
+        except Exception:
+            pass
+
         # PASS 1: 扫描所有进程，找到所有 vllm serve 主进程（可能有多个独立实例）
         vllm_serve_map = {}  # pid → cmdline
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
@@ -432,6 +447,8 @@ def get_vllm_processes_by_gpu(gpus):
             return None
 
         metrics_cache = {}  # metrics_url → metrics dict 缓存，避免重复请求同一端口
+        # 统计每张 GPU 上显存为 0 的 vLLM 进程数（用于回退分配）
+        gpu_zero_mem_count = {}
 
         for pid, gpu_list in pid_gpu_list.items():
             try:
@@ -454,10 +471,17 @@ def get_vllm_processes_by_gpu(gpus):
             model_name = _extract_model_from_cmdline(cmdline)
             metrics_url = _find_vllm_port(cmdline, pid)
 
+            used_memory_mb = max(m for _, m in gpu_list)
+
+            # 如果 nvidia-smi compute-apps 显存为 N/A(0)，尝试用 GPU 总显存用量回退估算
+            if used_memory_mb == 0:
+                for gpu_idx_tmp, _ in gpu_list:
+                    gpu_zero_mem_count[gpu_idx_tmp] = gpu_zero_mem_count.get(gpu_idx_tmp, 0) + 1
+
             proc_info = {
                 "pid": pid,
                 "name": proc_name,
-                "used_memory_mb": max(m for _, m in gpu_list),
+                "used_memory_mb": used_memory_mb,
                 "model_name": model_name,
                 "cmdline": " ".join(cmdline),
                 "metrics_url": metrics_url,
@@ -483,6 +507,17 @@ def get_vllm_processes_by_gpu(gpus):
             # 添加到该进程所在的每张 GPU
             for gpu_idx, _ in gpu_list:
                 result[gpu_idx].append(proc_info)
+
+        # 回退：对于显存为 N/A 的进程，用 GPU 总显存用量 / 进程数 估算
+        if gpu_zero_mem_count:
+            for gpu_idx in gpu_zero_mem_count:
+                total_used = gpu_total_used.get(gpu_idx, 0)
+                zero_count = gpu_zero_mem_count[gpu_idx]
+                if total_used > 0 and zero_count > 0:
+                    est_per_proc = total_used / zero_count
+                    for pinfo in result.get(gpu_idx, []):
+                        if pinfo.get("used_memory_mb", 0) == 0:
+                            pinfo["used_memory_mb"] = round(est_per_proc, 0)
 
     except Exception as e:
         print(f"get_vllm_processes_by_gpu error: {e}")
