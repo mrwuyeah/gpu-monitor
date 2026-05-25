@@ -18,7 +18,33 @@
 
 ---
 
-## 快速部署
+## 一键部署（推荐）
+
+```bash
+curl -O https://raw.githubusercontent.com/mrwuyeah/gpu-monitor/main/deploy_linux.sh
+chmod +x deploy_linux.sh && ./deploy_linux.sh
+```
+
+该脚本自动完成以下步骤：
+
+1. 安装系统依赖（python3、pip、build-essential）
+2. 检查 NVIDIA 驱动与 `nvidia-smi`
+3. 从 GitHub 克隆最新代码
+4. 安装 Python 依赖 & PyInstaller
+5. 打包为单文件可执行文件
+
+部署完成后：
+
+```bash
+cd ~/gpu_monitor
+./dist/gpu_monitor
+```
+
+浏览器打开 `http://localhost:5000` 即可访问。
+
+---
+
+## 分步部署（手动）
 
 ### 1. 安装系统依赖
 
@@ -43,25 +69,8 @@ sudo reboot
 ### 2. 获取项目文件
 
 ```bash
-# 创建项目目录
-mkdir -p ~/gpu_monitor && cd ~/gpu_monitor
-```
-
-将以下文件放置于此目录：
-
-```
-app.py
-auth.py
-console_routes.py
-build_linux.sh
-requirements.txt
-templates/
-├── index.html
-├── history.html
-├── console_login.html
-├── console_index.html
-├── console_settings.html
-└── console_users.html
+git clone https://github.com/mrwuyeah/gpu-monitor.git ~/gpu_monitor
+cd ~/gpu_monitor
 ```
 
 ### 3. 打包为可执行文件
@@ -138,14 +147,6 @@ sudo systemctl status gpu-monitor.service
 
 ---
 
-## 默认用户
-
-| 用户名 | 角色 | 说明 |
-|--------|------|------|
-| `yofc` | admin | 超级管理员，首次启动自动创建 |
-
----
-
 ## 首次启动初始化
 
 应用首次运行时会自动完成：
@@ -191,7 +192,7 @@ psutil, auth, console_routes
 **Q: 检测不到 vLLM 进程？**
 - 确认 vLLM 已启动且 nvidia-smi 可查询到其计算进程
 - 确认 vLLM 的 Prometheus 端点（`/metrics`）可访问
-- 系统会依次尝试：PID 匹配 → WSL 探测 → localhost:8000-8009 端口扫描
+- 系统会依次尝试：PID 匹配 → 端口扫描 localhost:8000-8009
 
 **Q: vLLM 显存显示 0 MB？**
 确认 vLLM 的 `/metrics` 端点有 `vllm:kv_cache_usage_perc` 指标。系统使用 `总显存 × kv_usage` 推算显存占用。
@@ -201,8 +202,12 @@ psutil, auth, console_routes
 
 ---
 
-## 预览
+## 相关文件
 
-![GPU 监控面板](assets/50a9184822762131e78611d375b1ca17.png)
-
-![历史查询](assets/dea476c67cfe30d6cd0530555b902a94.png)
+| 文件 | 说明 |
+|------|------|
+| `deploy_linux.sh` | 一键部署脚本（克隆 + 打包） |
+| `build_linux.sh` | 打包脚本（仅打包，需已有源码） |
+| `Linux部署指南.md` | 本部署文档 |
+| `gpu_monitor.spec` | PyInstaller 打包配置文件 |
+| `Ubuntu 24.04.4 GPU监控初始版本5.7 - 快速部署指南.pdf` | 原始版本部署手册（PDF 归档） |
