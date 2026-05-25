@@ -53,6 +53,8 @@ python3 -m PyInstaller \
     --hidden-import=click \
     --hidden-import=markupsafe \
     --hidden-import=psutil \
+    --hidden-import=auth \
+    --hidden-import=console_routes \
     --name gpu_monitor \
     app.py
 
