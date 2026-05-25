@@ -44,10 +44,14 @@
       border: 1px solid #cfe2ff;
       background: linear-gradient(180deg, #ffffff 0%, #f3f8ff 100%);
       color:#0b2a5b;
-      padding: 10px 14px;
-      border-radius: 10px;
-      font-weight: 800;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 12px;
       cursor: pointer;
+      white-space: nowrap;
+      text-decoration: none;
+      display: inline-block;
     }
     .btn.primary {
       border-color:#2b7bff;
@@ -59,17 +63,24 @@
     .btn:disabled { opacity:.6; cursor:not-allowed; }
 
     table { width:100%; border-collapse: collapse; font-size: 13px; }
-    th, td { padding: 10px 10px; border-bottom:1px solid #eef2ff; vertical-align: top; }
+    th, td { padding: 10px 12px; border-bottom:1px solid #eef2ff; vertical-align: middle; }
     th { text-align:left; color:#1f3b77; background:#f3f8ff; position: sticky; top: 0; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
     .muted { color:#64748b; }
-    .actions { display:flex; gap:8px; flex-wrap:wrap; }
-    .pill {
-      display:inline-block; padding:2px 8px; border-radius:999px;
-      border:1px solid #d9e6ff; background:#fbfdff;
-      color:#1f3b77; font-weight:700; font-size:12px;
-    }
     .logout { display:flex; gap:10px; align-items:center; }
+
+    .perm-tag {
+      display:inline-block; padding:2px 6px; border-radius:4px;
+      font-size:11px; font-weight:700; margin:1px 2px;
+      white-space: nowrap; word-break: keep-all; line-height: 1.4;
+    }
+    .tag-admin { background:#e0f2fe; color:#0369a1; }
+    .tag-senior { background:#fff7ed; color:#9a3412; }
+    .tag-junior { background:#f8fafc; color:#475569; }
+
+    .op-cell { display:flex; flex-direction:column; gap:6px; min-width: 260px; }
+    .op-perms { display:flex; gap:2px; flex-wrap:wrap; }
+    .op-btns { display:flex; gap:6px; flex-wrap:nowrap; align-items:center; }
   </style>
 </head>
 <body>
@@ -81,7 +92,12 @@
       </div>
       <div class="logout">
         <span class="pill">已登录：{{ username }}</span>
-        <form method="post" action="/console/logout">
+        {% if role == 'admin' %}
+        <a class="btn" href="/console/users">用户管理</a>
+        <a class="btn" href="/console/settings">API设置</a>
+        {% endif %}
+        <a class="btn" href="/console/settings#password">修改密码</a>
+        <form method="post" action="/console/logout" style="display:inline;">
           <button class="btn" type="submit">退出</button>
         </form>
       </div>
@@ -98,34 +114,54 @@
           <label>Base URL</label>
           <input id="base_url" class="mono" placeholder="http://10.99.40.67:5000" />
         </div>
-        <div class="field">
-          <label>Metrics URL（可选）</label>
-          <input id="metrics_url" class="mono" placeholder="http://10.99.40.67:8000/metrics" />
-        </div>
       </div>
       <div class="row" style="margin-top:12px;">
-        <div class="field" style="min-width: 420px; flex: 2;">
+        <div class="field" style="min-width: 280px;">
+          <label>API 令牌</label>
+          <div style="display:flex;gap:8px;">
+            <input id="api_token" class="mono" type="password" placeholder="输入 API 令牌" style="flex:1;" />
+            <button class="btn" id="verifyBtn" style="white-space:nowrap;">验证</button>
+          </div>
+        </div>
+        <div class="field" style="min-width: 300px; flex: 2;">
           <label>备注（可选）</label>
           <textarea id="notes" placeholder="例如：35B 主服务 / 0.5B 备份等"></textarea>
         </div>
         <div style="display:flex; align-items:flex-end; gap:10px;">
-          <button class="btn primary" id="saveBtn">保存</button>
+          <button class="btn primary" id="saveBtn" style="padding:10px 18px;">保存</button>
           <button class="btn" id="resetBtn">清空</button>
         </div>
       </div>
-      <input type="hidden" id="edit_id" />
-      <div id="msg" class="muted" style="margin-top:10px;"></div>
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid #e6efff;">
+        <label style="font-size:12px;color:#49618a;font-weight:700;margin-bottom:6px;">权限设置（允许哪些角色访问此实例）</label>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:4px;">
+          <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;">
+            <input type="checkbox" class="perm-cb" value="admin" checked /> <span style="color:#0369a1;font-weight:700;">管理员</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;">
+            <input type="checkbox" class="perm-cb" value="senior" checked /> <span style="color:#9a3412;font-weight:700;">高级</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;">
+            <input type="checkbox" class="perm-cb" value="junior" checked /> <span style="color:#475569;font-weight:700;">初级</span>
+          </label>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
+        <input type="hidden" id="edit_id" />
+        <div id="msg" class="muted" style="flex:1;"></div>
+        <div id="verifyResult" style="font-size:13px;font-weight:700;"></div>
+      </div>
     </div>
+
 
     <div class="card" style="padding:0; overflow:auto;">
       <div style="padding:16px 18px; font-weight:900; color:#0b2a5b;">实例列表</div>
       <table>
         <thead>
           <tr>
-            <th style="min-width:160px;">名称</th>
-            <th style="min-width:320px;">Base URL</th>
-            <th style="min-width:320px;">Metrics</th>
-            <th style="min-width:240px;">操作</th>
+            <th style="min-width:140px;">名称</th>
+            <th style="min-width:340px;">Base URL</th>
+            <th style="min-width:340px;">操作</th>
           </tr>
         </thead>
         <tbody id="tbody"></tbody>
@@ -134,138 +170,231 @@
   </div>
 
   <script>
-    const tbody = document.getElementById('tbody');
-    const msg = document.getElementById('msg');
+    var tbody = document.getElementById('tbody');
+    var msg = document.getElementById('msg');
 
-    function setMsg(t) { msg.textContent = t || ''; }
+    function setMsg(t) { if (msg) msg.textContent = t || ''; }
 
-    function val(id) { return document.getElementById(id).value.trim(); }
-    function setVal(id, v) { document.getElementById(id).value = v || ''; }
+    function val(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
+    function setVal(id, v) { var el = document.getElementById(id); if (el) el.value = v || ''; }
 
-    async function api(path, opts) {
-      const r = await fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts || {}));
-      const txt = await r.text();
-      let data = null;
-      try { data = txt ? JSON.parse(txt) : null; } catch { data = { raw: txt }; }
-      if (!r.ok) throw new Error((data && data.error) ? data.error : ('HTTP ' + r.status));
-      return data;
+    function api(method, path, body) {
+      var opts = {
+        method: method,
+        credentials: 'same-origin',
+      };
+      if (body !== undefined && body !== null) {
+        opts.headers = { 'Content-Type': 'application/json' };
+        opts.body = JSON.stringify(body);
+      }
+      return fetch(path, opts).then(function(r) {
+        return r.text().then(function(txt) {
+          var data = null;
+          try { data = txt ? JSON.parse(txt) : null; } catch (e) { data = null; }
+          if (r.ok) return data;
+          var errMsg = (data && (data.error || data.message)) || ('HTTP ' + r.status);
+          throw new Error(errMsg);
+        });
+      }).catch(function(err) {
+        if (err.message.indexOf('HTTP') === 0 || err.message.indexOf('Failed to fetch') >= 0) {
+          throw err;
+        }
+        throw err;
+      });
     }
 
     function render(items) {
       tbody.innerHTML = '';
       if (!items || !items.length) {
-        tbody.innerHTML = '<tr><td colspan="4" class="muted" style="padding:14px 18px;">暂无实例，请先添加。</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="3" class="muted" style="padding:14px 18px;">暂无实例，请先添加。</td></tr>';
         return;
       }
-      for (const it of items) {
-        const base = it.base_url || '';
-        const metrics = it.metrics_url || '';
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td><div style="font-weight:800;">${escapeHtml(it.name || '')}</div><div class="muted">#${it.id}</div></td>
-          <td class="mono">${escapeHtml(base)}</td>
-          <td class="mono muted">${escapeHtml(metrics || '-') }</td>
-          <td>
-            <div class="actions">
-              <a class="btn" href="${base}/" target="_blank" rel="noopener">实时</a>
-              <a class="btn" href="${base}/history" target="_blank" rel="noopener">历史</a>
-              <button class="btn" data-edit="${it.id}">编辑</button>
-              <button class="btn danger" data-del="${it.id}">删除</button>
-            </div>
-          </td>
-        `;
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        var base = it.base_url || '';
+        var instanceToken = it.token || '';
+        var sep = base.indexOf('?') >= 0 ? '&' : '?';
+        var tokenSuffix = instanceToken ? (sep + 'token=' + encodeURIComponent(instanceToken)) : '';
+
+        var roles = (it.allowed_roles || "admin,senior,junior").split(",");
+        var labels = {admin:"管理",senior:"高级",junior:"初级"};
+        var cssMap = {admin:"tag-admin",senior:"tag-senior",junior:"tag-junior"};
+        var roleHtml = '';
+        for (var j = 0; j < roles.length; j++) {
+          var r = roles[j].trim();
+          if (!r) continue;
+          var l = labels[r] || r;
+          var cls = cssMap[r] || '';
+          roleHtml += '<span class="perm-tag ' + cls + '">' + l + '</span>';
+        }
+
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td><div style="font-weight:800;">' + escHtml(it.name || '') + '</div><div class="muted" style="font-size:11px;">#' + it.id + '</div></td>' +
+          '<td class="mono">' + escHtml(base) + '</td>' +
+          '<td>' +
+            '<div class="op-cell">' +
+              '<div class="op-perms">' + roleHtml + '</div>' +
+              '<div class="op-btns">' +
+                '<a class="btn" href="' + escHtml(base) + '/' + tokenSuffix + '" target="_blank" rel="noopener">实时</a>' +
+                '<a class="btn" href="' + escHtml(base) + '/history' + tokenSuffix + '" target="_blank" rel="noopener">历史</a>' +
+                '<button class="btn" data-edit="' + it.id + '">编辑</button>' +
+                '<button class="btn danger" data-del="' + it.id + '">删除</button>' +
+              '</div>' +
+            '</div>' +
+          '</td>';
         tbody.appendChild(tr);
       }
     }
 
-    function escapeHtml(s) {
-      return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
     }
 
-    async function load() {
-      const data = await api('/console/api/instances');
-      render(data.items || []);
+    function getSelectedRoles() {
+      var cbs = document.querySelectorAll('.perm-cb');
+      var selected = [];
+      for (var i = 0; i < cbs.length; i++) { if (cbs[i].checked) selected.push(cbs[i].value); }
+      return selected.length ? selected.join(',') : 'admin';
     }
 
-    document.getElementById('saveBtn').addEventListener('click', async (e) => {
+    function setSelectedRoles(str) {
+      var vals = (str || 'admin,senior,junior').split(',');
+      var cbs = document.querySelectorAll('.perm-cb');
+      for (var i = 0; i < cbs.length; i++) {
+        cbs[i].checked = false;
+        for (var j = 0; j < vals.length; j++) {
+          if (cbs[i].value === vals[j].trim()) { cbs[i].checked = true; break; }
+        }
+      }
+    }
+
+    function load() {
+      return api('GET', '/console/api/instances').then(function(data) {
+        render(data ? (data.items || []) : []);
+      });
+    }
+
+    // ── 保存按钮 ──
+    document.getElementById('saveBtn').addEventListener('click', function(e) {
       e.preventDefault();
       setMsg('');
-      const id = val('edit_id');
-      const payload = {
+      var id = val('edit_id');
+      var payload = {
         name: val('name'),
         base_url: val('base_url'),
-        metrics_url: val('metrics_url'),
+        metrics_url: '',
+        token: val('api_token'),
         notes: val('notes'),
+        allowed_roles: getSelectedRoles(),
       };
       if (!payload.name || !payload.base_url) {
         setMsg('名称与 Base URL 为必填。');
         return;
       }
-      try {
-        if (id) {
-          await api('/console/api/instances/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify(payload) });
-          setMsg('已更新。');
-        } else {
-          await api('/console/api/instances', { method: 'POST', body: JSON.stringify(payload) });
-          setMsg('已保存。');
-        }
+      if (!payload.token) {
+        setMsg('API 令牌为必填。');
+        return;
+      }
+      var req;
+      if (id) {
+        req = api('PUT', '/console/api/instances/' + encodeURIComponent(id), payload);
+      } else {
+        req = api('POST', '/console/api/instances', payload);
+      }
+      req.then(function() {
+        setMsg(id ? '已更新。' : '已保存。');
         setVal('edit_id','');
         setVal('name','');
         setVal('base_url','');
-        setVal('metrics_url','');
         setVal('notes','');
-        await load();
-      } catch (err) {
+        setVal('api_token','');
+        var vr = document.getElementById('verifyResult');
+        if (vr) vr.textContent = '';
+        return load();
+      }).catch(function(err) {
         setMsg('失败：' + err.message);
-      }
+      });
     });
 
-    document.getElementById('resetBtn').addEventListener('click', (e) => {
+    // ── 清空按钮 ──
+    document.getElementById('resetBtn').addEventListener('click', function(e) {
       e.preventDefault();
       setVal('edit_id','');
       setVal('name','');
       setVal('base_url','');
-      setVal('metrics_url','');
       setVal('notes','');
+      setVal('api_token','');
+      setSelectedRoles('admin,senior,junior');
+      var vr = document.getElementById('verifyResult');
+      if (vr) vr.textContent = '';
       setMsg('');
     });
 
-    tbody.addEventListener('click', async (e) => {
-      const btn = e.target.closest('button');
+    // ── 编辑 / 删除（事件委托）──
+    tbody.addEventListener('click', function(e) {
+      var btn = e.target.closest('button');
       if (!btn) return;
-      const editId = btn.getAttribute('data-edit');
-      const delId = btn.getAttribute('data-del');
+      var editId = btn.getAttribute('data-edit');
+      var delId = btn.getAttribute('data-del');
 
       if (editId) {
-        try {
-          const data = await api('/console/api/instances');
-          const it = (data.items || []).find(x => String(x.id) === String(editId));
+        api('GET', '/console/api/instances').then(function(data) {
+          var items = data ? (data.items || []) : [];
+          var it = null;
+          for (var i = 0; i < items.length; i++) {
+            if (String(items[i].id) === String(editId)) { it = items[i]; break; }
+          }
           if (!it) return;
           setVal('edit_id', it.id);
           setVal('name', it.name);
           setVal('base_url', it.base_url);
-          setVal('metrics_url', it.metrics_url);
           setVal('notes', it.notes);
+          setVal('api_token', it.token || '');
+          setSelectedRoles(it.allowed_roles || '');
+          var vr = document.getElementById('verifyResult');
+          if (vr) vr.textContent = '';
           setMsg('编辑中：#' + it.id);
           window.scrollTo({ top: 0, behavior: 'smooth' });
-        } catch (err) {
+        }).catch(function(err) {
           setMsg('读取失败：' + err.message);
-        }
+        });
       }
 
       if (delId) {
         if (!confirm('确认删除实例 #' + delId + ' ?')) return;
-        try {
-          await api('/console/api/instances/' + encodeURIComponent(delId), { method: 'DELETE' });
+        api('DELETE', '/console/api/instances/' + encodeURIComponent(delId)).then(function() {
           setMsg('已删除。');
-          await load();
-        } catch (err) {
+          return load();
+        }).catch(function(err) {
           setMsg('删除失败：' + err.message);
-        }
+        });
       }
     });
 
-    load().catch(err => setMsg('加载失败：' + err.message));
+    // ── 验证按钮 ──
+    document.getElementById('verifyBtn').addEventListener('click', function(e) {
+      e.preventDefault();
+      var baseUrl = val('base_url');
+      var token = val('api_token');
+      var resultEl = document.getElementById('verifyResult');
+      if (!baseUrl) { resultEl.textContent = '请先填写 Base URL'; resultEl.style.color = '#9f1239'; return; }
+      if (!token) { resultEl.textContent = '请先填写 API 令牌'; resultEl.style.color = '#9f1239'; return; }
+      resultEl.textContent = '验证中...';
+      resultEl.style.color = '#64748b';
+      api('POST', '/console/api/instances/verify', { base_url: baseUrl, token: token })
+        .then(function(data) {
+          resultEl.textContent = data && data.message ? data.message : '已完成';
+          resultEl.style.color = (data && data.ok) ? '#166534' : '#9f1239';
+        })
+        .catch(function(err) {
+          resultEl.textContent = '✗ ' + err.message;
+          resultEl.style.color = '#9f1239';
+        });
+    });
+
+    // ── 启动 ──
+    load().catch(function(err) { setMsg('加载失败：' + err.message); });
   </script>
 </body>
 </html>

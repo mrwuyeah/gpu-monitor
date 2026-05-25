@@ -6,11 +6,11 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[('templates', 'templates')],
-    hiddenimports=['flask', 'werkzeug', 'jinja2', 'itsdangerous', 'click', 'markupsafe', 'psutil'],
+    hiddenimports=['flask', 'werkzeug', 'jinja2', 'itsdangerous', 'click', 'markupsafe', 'psutil', 'auth', 'console_routes'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['PyQt5', 'PySide6', 'PySide2', 'matplotlib', 'IPython', 'jedi', 'sphinx', 'nbformat', 'black', 'zmq'],
+    excludes=['PyQt5', 'PySide6', 'matplotlib', 'IPython', 'sphinx', 'jedi', 'black', 'nbformat', 'zmq'],
     noarchive=False,
     optimize=0,
 )

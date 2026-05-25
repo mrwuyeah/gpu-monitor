@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>用户管理 - 本地控制台</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #eef6ff 0%, #dbeafe 35%, #e0f2fe 100%);
+      min-height: 100vh;
+      padding: 24px;
+      color: #0f172a;
+    }
+    .wrap { max-width: 800px; margin: 0 auto; }
+    .top {
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      margin-bottom: 18px;
+    }
+    .title {
+      font-size: 22px; font-weight: 800; letter-spacing: .2px;
+      color:#0b2a5b;
+    }
+    .card {
+      background:#ffffff;
+      border: 1px solid #e6efff;
+      border-radius: 14px;
+      box-shadow: 0 10px 28px rgba(15, 102, 240, 0.08);
+      padding: 22px;
+      margin-bottom: 16px;
+    }
+    .muted { color:#64748b; font-size:13px; }
+    .pill {
+      display:inline-block; padding:2px 8px; border-radius:999px;
+      border:1px solid #d9e6ff; background:#fbfdff;
+      color:#1f3b77; font-weight:700; font-size:12px;
+    }
+    .badge-admin {
+      display:inline-block; padding:1px 6px; border-radius:4px;
+      background:#e0f2fe; color:#0369a1; font-size:11px; font-weight:700;
+    }
+    .badge-user {
+      display:inline-block; padding:1px 6px; border-radius:4px;
+      background:#f1f5f9; color:#475569; font-size:11px; font-weight:700;
+    }
+    .btn {
+      border: 1px solid #cfe2ff;
+      background: linear-gradient(180deg, #ffffff 0%, #f3f8ff 100%);
+      color:#0b2a5b;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-weight: 800;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .btn.primary {
+      border-color:#2b7bff;
+      background: linear-gradient(180deg, #2b7bff 0%, #0f66f0 100%);
+      color:#fff;
+      box-shadow: 0 10px 20px rgba(15,102,240,.22);
+    }
+    .btn.danger {
+      border-color:#fecaca;
+      background:#fff1f2;
+      color:#9f1239;
+    }
+    .row { display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
+    .field { flex:1; min-width: 200px; }
+    label { display:block; font-size:12px; color:#49618a; margin-bottom:6px; font-weight:700; }
+    input {
+      width:100%; padding:10px 12px; border-radius:10px;
+      border:1px solid #d9e6ff; outline:none;
+      background:#fbfdff;
+    }
+    input:focus { border-color:#60a5fa; box-shadow:0 0 0 3px rgba(96,165,250,.18); }
+    table { width:100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 10px 10px; border-bottom:1px solid #eef2ff; }
+    th { text-align:left; color:#1f3b77; background:#f3f8ff; font-size:12px; }
+    .actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .msg-box {
+      margin-top: 10px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      display: none;
+    }
+    .msg-box.success { display:block; background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; }
+    .msg-box.error { display:block; background:#fff1f2; border:1px solid #fecaca; color:#9f1239; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div class="title">用户管理</div>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <a class="btn" href="/console">实例管理</a>
+        <a class="btn" href="/console/settings">API设置</a>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <span class="pill">已登录：{{ username }}</span>
+          <form method="post" action="/console/logout">
+            <button class="btn" type="submit">退出</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="font-weight:900;color:#0b2a5b;margin-bottom:14px;">新增用户</div>
+      <div class="row">
+        <div class="field">
+          <label>用户名</label>
+          <input id="newUsername" placeholder="输入用户名" />
+        </div>
+        <div class="field">
+          <label>密码</label>
+          <input id="newPassword" type="password" placeholder="输入密码（至少4位）" />
+        </div>
+        <div class="field">
+          <label>角色</label>
+          <select id="newRole" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid #d9e6ff;outline:none;background:#fbfdff;">
+            <option value="junior">初级</option>
+            <option value="senior">高级</option>
+            <option value="admin" selected>管理员</option>
+          </select>
+        </div>
+        <div>
+          <button class="btn primary" id="addBtn">创建用户</button>
+        </div>
+      </div>
+      <div id="msg" class="msg-box"></div>
+    </div>
+
+    <div class="card" style="padding:0; overflow:auto;">
+      <div style="padding:16px 18px; font-weight:900; color:#0b2a5b;">用户列表</div>
+      <table>
+        <thead>
+          <tr><th>ID</th><th>用户名</th><th>角色</th><th>创建时间</th><th>操作</th></tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const tbody = document.getElementById('tbody');
+    const msg = document.getElementById('msg');
+
+    function showMsg(text, type) {
+      msg.textContent = text;
+      msg.className = 'msg-box ' + (type || 'success');
+    }
+
+    async function api(path, opts) {
+      const r = await fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts || {}));
+      const txt = await r.text();
+      let data = null;
+      try { data = txt ? JSON.parse(txt) : null; } catch { data = { raw: txt }; }
+      if (!r.ok) throw new Error((data && data.error) ? data.error : ('HTTP ' + r.status));
+      return data;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
+    }
+
+    async function load() {
+      const data = await api('/console/api/users');
+      tbody.innerHTML = '';
+      if (!data.items || !data.items.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="muted" style="padding:14px;">暂无用户</td></tr>';
+        return;
+      }
+      for (const u of data.items) {
+        const tr = document.createElement('tr');
+        const isAdmin = u.role === 'admin';
+        const roleLabels = {admin:'超级管理员',senior:'高级用户',junior:'初级用户'};
+        const roleColors = {admin:'#0369a1',senior:'#9a3412',junior:'#475569'};
+        const badgeStyle = `display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:700;`;
+        const badge = `<span style="${badgeStyle}background:#f0f7ff;color:${roleColors[u.role] || '#475569'};">${roleLabels[u.role] || u.role}</span>`;
+        tr.innerHTML = `
+          <td>${u.id}</td>
+          <td><strong>${escapeHtml(u.username)}</strong></td>
+          <td>${badge}</td>
+          <td class="muted">${u.created_at || '-'}</td>
+          <td>
+            ${isAdmin ? '<span class="muted">-</span>'
+              : `<select class="role-select" data-uid="${u.id}" style="padding:4px 6px;border-radius:6px;border:1px solid #d9e6ff;font-size:12px;margin-right:6px;">
+                  <option value="junior" ${u.role==='junior'?'selected':''}>初级</option>
+                  <option value="senior" ${u.role==='senior'?'selected':''}>高级</option>
+                  <option value="admin" ${u.role==='admin'?'selected':''}>管理员</option>
+                 </select>
+              <button class="btn danger" data-del="${u.id}" data-name="${escapeHtml(u.username)}">删除</button>`}
+          </td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+
+    document.getElementById('addBtn').addEventListener('click', async () => {
+      const username = document.getElementById('newUsername').value.trim();
+      const password = document.getElementById('newPassword').value;
+      if (!username || !password) { showMsg('请填写用户名和密码', 'error'); return; }
+      if (password.length < 4) { showMsg('密码至少 4 位', 'error'); return; }
+      try {
+        const role = document.getElementById('newRole').value;
+        await api('/console/api/users', {
+          method: 'POST',
+          body: JSON.stringify({ username, password, role })
+        });
+        showMsg('用户 ' + username + ' 创建成功');
+        document.getElementById('newUsername').value = '';
+        document.getElementById('newPassword').value = '';
+        await load();
+      } catch (err) {
+        showMsg('创建失败: ' + err.message, 'error');
+      }
+    });
+
+    tbody.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button[data-del]');
+      if (!btn) return;
+      const userId = btn.getAttribute('data-del');
+      const userName = btn.getAttribute('data-name');
+      if (!confirm('确认删除用户 "' + userName + '" ？')) return;
+      try {
+        await api('/console/api/users/' + userId, { method: 'DELETE' });
+        showMsg('已删除用户: ' + userName);
+        await load();
+      } catch (err) {
+        showMsg('删除失败: ' + err.message, 'error');
+      }
+    });
+
+    // Role change handler
+    tbody.addEventListener('change', async (e) => {
+      const sel = e.target.closest('select.role-select');
+      if (!sel) return;
+      const uid = sel.getAttribute('data-uid');
+      const newRole = sel.value;
+      try {
+        await api('/console/api/users/' + uid + '/role', {
+          method: 'PATCH',
+          body: JSON.stringify({ role: newRole })
+        });
+        showMsg('角色已更新');
+        await load();
+      } catch (err) {
+        showMsg('角色更新失败: ' + err.message, 'error');
+        await load();
+      }
+    });
+
+    load().catch(err => showMsg('加载失败: ' + err.message, 'error'));
+  </script>
+</body>
+</html>

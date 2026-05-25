@@ -53,21 +53,43 @@
       font-size: 13px;
       display: {{ 'block' if error else 'none' }};
     }
+    .hint {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background:#f0f7ff;
+      border: 1px solid #b8d4fe;
+      color:#1e40af;
+      font-size: 13px;
+      display: {{ 'block' if logged_in_hint else 'none' }};
+    }
+    .logout-link {
+      display:block; text-align:center; margin-top: 12px;
+      color:#64748b; font-size: 13px;
+    }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="title">本地控制台登录</div>
-    <div class="muted">默认账号/密码：admin / admin（建议首次登录后修改）。</div>
+    <div class="muted">请输入账号和密码登录</div>
 
     <div class="err">{{ error }}</div>
+    <div class="hint">{{ logged_in_hint }}</div>
+    {% if logged_in_hint %}
+    <div class="logout-link">
+      已登录为 <strong>{{ session.get('console_user') }}</strong> &middot;
+      <a href="/console/logout" style="color:#1e40af;"
+         onclick="event.preventDefault(); fetch('/console/logout',{method:'POST'}).then(()=>location.reload());">退出登录</a>
+    </div>
+    {% endif %}
 
     <form method="post" action="/console/login">
       <label>账号</label>
-      <input name="username" placeholder="admin" value="admin" autocomplete="username" />
+      <input name="user_login" placeholder="请输入账号" autocomplete="off" />
 
       <label>密码</label>
-      <input name="password" type="password" placeholder="admin" value="admin" autocomplete="current-password" />
+      <input name="user_pass" type="password" placeholder="请输入密码" autocomplete="off" />
 
       <button class="btn" type="submit">登录</button>
     </form>

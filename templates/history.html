@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GPU历史数据查询</title>
+    <script>window.__API_TOKEN__ = new URLSearchParams(window.location.search).get("token") || "";</script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/modern-css-reset/dist/reset.min.css">
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:#f6f8fb; color:#111; padding:24px; }
@@ -23,7 +24,7 @@
     <div class="container">
         <div style="display:flex;justify-content:space-between;align-items:center;">
             <h2>GPU 历史查询</h2>
-            <div><a href="/" style="color:#0f66f0; text-decoration:none;">返回实时监控</a></div>
+            <div><a href="/" id="returnLink" style="color:#0f66f0; text-decoration:none;">返回实时监控</a></div>
         </div>
 
         <div class="alert" id="alertBox"></div>
@@ -230,7 +231,9 @@
             params.append('page_size', pageSize);
 
             try {
-                const res = await fetch('/api/query-history?' + params.toString());
+                if (false && !window.__API_TOKEN__) { showAlert('请通过控制台访问（缺少 API 令牌）'); return; }
+                const headers = { 'Authorization': 'Bearer ' + window.__API_TOKEN__ };
+                const res = await fetch('/api/query-history?' + params.toString(), { headers: headers });
                 const payload = await res.json();
                 if (payload.error) { showAlert('查询出错: ' + payload.error); return; }
                 const data = payload.items || [];
@@ -259,7 +262,9 @@
             params.append('sample_size', sampleSize);
 
             try {
-                const res = await fetch('/api/query-history-chart?' + params.toString());
+                if (false && !window.__API_TOKEN__) { showAlert('请通过控制台访问（缺少 API 令牌）'); return; }
+                const hdrs = { 'Authorization': 'Bearer ' + window.__API_TOKEN__ };
+                const res = await fetch('/api/query-history-chart?' + params.toString(), { headers: hdrs });
                 const payload = await res.json();
                 if (payload.error) { showAlert('查询出错: ' + payload.error); return; }
                 currentChartData = payload.items || [];
@@ -337,6 +342,12 @@
 
         // 页面首次打开默认最近1小时
         window.addEventListener('load', () => {
+            // 设置返回链接（保留 token）
+            var token = window.__API_TOKEN__ || '';
+            if (token) {
+                var link = document.getElementById('returnLink');
+                if (link) link.href = '/?token=' + encodeURIComponent(token);
+            }
             setRangeHours(1);
         });
     </script>

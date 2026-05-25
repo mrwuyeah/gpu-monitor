@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GPU实时监控</title>
+    <script>window.__API_TOKEN__ = new URLSearchParams(window.location.search).get("token") || "";</script>
     <style>
         * {
             margin: 0;
@@ -195,7 +196,7 @@
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
             <h1>🖥️ GPU实时监控系统</h1>
             <div style="display:flex;gap:8px;">
-                <a href="/history" style="background:#fff;color:#0f66f0;padding:8px 12px;border-radius:8px;text-decoration:none;font-weight:600;box-shadow:0 4px 12px rgba(15,102,240,0.12);">历史查询</a>
+                <a href="/history" id="historyLink" style="background:#fff;color:#0f66f0;padding:8px 12px;border-radius:8px;text-decoration:none;font-weight:600;box-shadow:0 4px 12px rgba(15,102,240,0.12);">历史查询</a>
                 <a href="/console" style="background:#0f66f0;color:#fff;padding:8px 12px;border-radius:8px;text-decoration:none;font-weight:600;box-shadow:0 4px 12px rgba(15,102,240,0.22);">控制台</a>
             </div>
         </div>
@@ -254,6 +255,13 @@
             </div>
         </div>
         
+        <div id="noTokenMsg" style="display:none;text-align:center;padding:80px 20px;background:white;border-radius:15px;box-shadow:0 8px 32px rgba(0,0,0,0.1);margin-bottom:20px;">
+            <div style="font-size:24px;font-weight:900;color:#0b2a5b;margin-bottom:12px;">需要 API 令牌</div>
+            <div style="color:#64748b;font-size:14px;max-width:400px;margin:0 auto;line-height:1.8;">
+                请通过控制台添加监控实例后，从实例链接访问。<br><br>
+                <a href="/console" style="color:#0f66f0;font-weight:700;">前往控制台 →</a>
+            </div>
+        </div>
         <div class="gpu-grid" id="gpuContainer">
             <div style="text-align: center; padding: 40px; color: white; font-size: 1.1em;">
                 正在加载GPU信息...
@@ -278,7 +286,16 @@
         
         async function updateGPUInfo() {
             try {
-                const response = await fetch('/api/gpu-info');
+                const headers = {};
+                if (window.__API_TOKEN__) {
+                    headers['Authorization'] = 'Bearer ' + window.__API_TOKEN__;
+                }
+                const response = await fetch('/api/gpu-info', { headers: headers });
+                if (response.status === 401) {
+                    document.getElementById('noTokenMsg').style.display = 'block';
+                    document.getElementById('gpuContainer').innerHTML = '';
+                    return;
+                }
                 const data = await response.json();
                 
                 if (!data.gpus || data.gpus.length === 0) {
@@ -355,7 +372,7 @@
                                     <div style="font-size:12px;color:#6b7a99;">仅展示识别为 vLLM 的进程</div>
                                 </div>
                                 ${(() => {
-                                    const ps = (gpu.vllm_processes || []);
+                                    const ps = (gpu.vllm_processes || []).filter(function(p) { return p.pid !== 0; });
                                     if (!ps.length) {
                                         return `<div style="color:#94a3b8;font-size:13px;">未检测到 vLLM 进程</div>`;
                                     }
@@ -368,8 +385,9 @@
                                         const waiting = p.waiting !== undefined && p.waiting !== null ? p.waiting.toFixed(0) : '-';
                                         const kv = p.kv_usage !== undefined && p.kv_usage !== null ? (p.kv_usage * 100).toFixed(1) + '%' : '-';
                                         const crossGpuLabel = p.is_cross_gpu && p.gpu_indices ? `<span style="background:#e0f2fe;color:#0369a1;font-size:10px;padding:1px 5px;border-radius:3px;white-space:nowrap;">跨卡 GPU ${p.gpu_indices.join(',')}</span>` : '<span style="color:#94a3b8;font-size:11px;">单卡</span>';
+                                        var pidDisplay = p.pid > 0 ? String(p.pid) : 'auto';
                                         return `<tr>
-                                            <td style="padding:6px 8px;white-space:nowrap;">${p.pid}</td>
+                                            <td style="padding:6px 8px;white-space:nowrap;">${pidDisplay}</td>
                                             <td style="padding:6px 8px;white-space:nowrap;">${mem} MB</td>
                                             <td style="padding:6px 8px;white-space:nowrap;">${running}</td>
                                             <td style="padding:6px 8px;white-space:nowrap;">${waiting}</td>
@@ -469,6 +487,15 @@
             }
         }
         
+        // 设置历史查询链接（保留 token）
+        (function() {
+            var token = window.__API_TOKEN__ || '';
+            if (token) {
+                var link = document.getElementById('historyLink');
+                if (link) link.href = '/history?token=' + encodeURIComponent(token);
+            }
+        })();
+
         // 初始加载
         updateGPUInfo();
         

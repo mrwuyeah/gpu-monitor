@@ -12,8 +12,14 @@ import psutil
 import csv
 import io
 import argparse
+import secrets
+import urllib.request
+import ssl
 
-from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import generate_password_hash
+
+from auth import api_token_required, login_required, get_api_token, init_auth
+from console_routes import console_bp
 
 
 def resource_path(relative_path):
@@ -22,12 +28,16 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE = os.path.join(BASE_DIR, "gpu_monitor_error.log")
 DB_FILE = os.path.join(BASE_DIR, "gpu_usage.db")
 
 app = Flask(__name__, template_folder=resource_path("templates"))
-app.secret_key = os.environ.get("GPU_MONITOR_SECRET_KEY", "gpu-monitor-dev-secret")
+# session secret key will be loaded from DB in init_db()
+app.secret_key = "temp-key-replaced-in-init-db"
 
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
@@ -98,10 +108,29 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'user',
             created_at TEXT
         )
         """
     )
+
+    # 兼容旧数据库：添加 role 列（如果不存在）
+    try:
+        c.execute("ALTER TABLE console_users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
+    except Exception:
+        pass
+
+    # 兼容旧数据库：添加 token 列到 monitor_instances（如果不存在）
+    try:
+        c.execute("ALTER TABLE monitor_instances ADD COLUMN token TEXT DEFAULT ''")
+    except Exception:
+        pass
+
+    # 兼容旧数据库：添加 allowed_roles 列（如果不存在）
+    try:
+        c.execute("ALTER TABLE monitor_instances ADD COLUMN allowed_roles TEXT DEFAULT 'admin,senior,junior'")
+    except Exception:
+        pass
 
     c.execute(
         """
@@ -111,7 +140,19 @@ def init_db():
             base_url TEXT NOT NULL,
             metrics_url TEXT,
             notes TEXT,
+            token TEXT DEFAULT '',
+            allowed_roles TEXT DEFAULT 'admin,senior,junior',
             created_at TEXT,
+            updated_at TEXT
+        )
+        """
+    )
+
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS api_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
             updated_at TEXT
         )
         """
@@ -119,16 +160,55 @@ def init_db():
 
     conn.commit()
 
-    # ensure default admin/admin
+    # ensure default super admin: yofc
     try:
-        c.execute("SELECT id FROM console_users WHERE username = ?", ("admin",))
+        c.execute("SELECT id FROM console_users WHERE username = ?", ("yofc",))
         row = c.fetchone()
         if row is None:
             c.execute(
-                "INSERT INTO console_users (username, password_hash, created_at) VALUES (?, ?, ?)",
-                ("admin", generate_password_hash("admin"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                "INSERT INTO console_users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+                ("yofc", generate_password_hash("K9#mP2$vL5@nQ8*xW3!z"), "admin", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
             )
             conn.commit()
+        else:
+            # 确保 yofc 是 admin 角色
+            c.execute("UPDATE console_users SET role = 'admin' WHERE username = 'yofc'")
+            conn.commit()
+    except Exception:
+        pass
+
+    # ensure default API token
+    try:
+        c.execute("SELECT value FROM api_settings WHERE key = 'api_token'")
+        row = c.fetchone()
+        if row:
+            current_token = row[0]
+            print(f'当前 API 令牌: {current_token}')
+        else:
+            default_token = secrets.token_urlsafe(32)
+            c.execute(
+                "INSERT INTO api_settings (key, value, updated_at) VALUES (?, ?, ?)",
+                ('api_token', default_token, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            )
+            conn.commit()
+            print(f'默认 API 令牌已生成，请及时保存: {default_token}')
+    except Exception:
+        pass
+
+    # ensure session secret key (persist across restarts)
+    try:
+        c.execute("SELECT value FROM api_settings WHERE key = 'session_secret'")
+        row = c.fetchone()
+        if row:
+            app.secret_key = row[0]
+        else:
+            new_key = secrets.token_hex(32)
+            c.execute(
+                "INSERT INTO api_settings (key, value, updated_at) VALUES (?, ?, ?)",
+                ('session_secret', new_key, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            )
+            conn.commit()
+            app.secret_key = new_key
     except Exception:
         pass
 
@@ -136,6 +216,10 @@ def init_db():
 
 # 全局DB连接（通过 lock 保证并发访问安全）
 db_conn = init_db()
+
+# 初始化认证模块并注册控制台蓝本
+init_auth(app, db_conn, lock)
+app.register_blueprint(console_bp)
 
 def _parse_nvidia_smi_csv(text):
     text = (text or "").strip()
@@ -265,8 +349,14 @@ def _fetch_vllm_metrics(metrics_url):
         return None
 
     try:
-        cmd = ["curl", "-fsS", "--max-time", "1", metrics_url]
-        txt = subprocess.check_output(cmd).decode("utf-8", errors="replace")
+        import urllib.request
+        import ssl
+        req = urllib.request.Request(metrics_url)
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        resp = urllib.request.urlopen(req, timeout=0.5, context=ctx)
+        txt = resp.read().decode("utf-8", errors="replace")
     except Exception:
         return None
 
@@ -351,6 +441,50 @@ def _get_active_metrics_url():
         return row[0] if row and row[0] else None
     except Exception:
         return None
+
+
+def _wsl_find_vllm_processes():
+    """通过 wsl.exe 查询 WSL 内的 vLLM 进程，返回 [{pid, port, model_name, cmdline}, ...]"""
+    try:
+        output = subprocess.check_output(
+            ["wsl.exe", "ps", "aux"],
+            timeout=5, stderr=subprocess.DEVNULL
+        ).decode("utf-8", errors="replace")
+    except Exception:
+        return []
+
+    results = []
+    for line in output.splitlines():
+        if "vllm" not in line.lower():
+            continue
+        parts = line.split(None, 10)
+        if len(parts) < 11:
+            continue
+        try:
+            pid = int(parts[1])
+            cmdline_str = parts[10] if len(parts) > 10 else ""
+            cmdline_parts = cmdline_str.split()
+        except (ValueError, IndexError):
+            continue
+
+        # 提取端口
+        port = 8000  # default
+        for i, arg in enumerate(cmdline_parts):
+            if arg == "--port" and i + 1 < len(cmdline_parts):
+                try:
+                    port = int(cmdline_parts[i + 1])
+                    break
+                except ValueError:
+                    pass
+
+        model_name = _extract_model_from_cmdline(cmdline_parts)
+        results.append({
+            "pid": pid,
+            "port": port,
+            "model_name": model_name,
+            "cmdline": cmdline_str,
+        })
+    return results
 
 
 def get_vllm_processes_by_gpu(gpus):
@@ -547,6 +681,115 @@ def get_vllm_processes_by_gpu(gpus):
                     for pinfo in result.get(gpu_idx, []):
                         if pinfo.get("used_memory_mb", 0) == 0:
                             pinfo["used_memory_mb"] = round(est_per_proc, 0)
+        # 补充：从控制台已配置实例中采集 vLLM metrics（支持 WSL 等跨环境场景）
+        try:
+            with lock:
+                c = db_conn.cursor()
+                c.execute(
+                    "SELECT metrics_url FROM monitor_instances WHERE metrics_url IS NOT NULL AND metrics_url != '' ORDER BY id DESC"
+                )
+                for db_row in c.fetchall():
+                    murl = db_row[0]
+                    if not murl:
+                        continue
+                    if murl in metrics_cache:
+                        metrics = metrics_cache[murl]
+                    else:
+                        metrics = _fetch_vllm_metrics(murl)
+                        metrics_cache[murl] = metrics
+                    if metrics:
+                        proc_info = {
+                            "pid": -1,
+                            "name": "vLLM (remote)",
+                            "model_name": None,
+                            "cmdline": "",
+                            "metrics_url": murl,
+                            "gpu_indices": [g.get("index") for g in gpus],
+                            "is_cross_gpu": len(gpus) > 1,
+                            "used_memory_mb": 0,
+                        }
+                        proc_info.update(metrics)
+                        if proc_info.get("kv_usage") and proc_info["used_memory_mb"] == 0 and gpus:
+                            proc_info["used_memory_mb"] = round(gpus[0].get("mem_total", 0) * proc_info["kv_usage"], 1)
+                        for g in gpus:
+                            gpu_idx = g.get("index")
+                            info_copy = dict(proc_info)
+                            result[gpu_idx].append(info_copy)
+        except Exception:
+            pass
+
+        # WSL 探测：通过 wsl.exe 获取 WSL 内 vLLM 进程的准确端口和 PID
+        # pid_gpu_list 非空不代表识别出 vLLM（WSL 进程可见但不可读）
+        has_vllm = any(len(procs) > 0 for procs in result.values())
+        if not has_vllm:
+            try:
+                wsl_procs = _wsl_find_vllm_processes()
+                for wp in wsl_procs:
+                    wsl_url = f"http://localhost:{wp['port']}/metrics"
+                    if wsl_url in metrics_cache:
+                        continue
+                    m = _fetch_vllm_metrics(wsl_url)
+                    if m:
+                        metrics_cache[wsl_url] = m
+                        proc_info = {
+                            "pid": wp["pid"],
+                            "name": "vLLM (WSL)",
+                            "model_name": wp["model_name"],
+                            "cmdline": wp["cmdline"],
+                            "metrics_url": wsl_url,
+                            "gpu_indices": [g.get("index") for g in gpus],
+                            "is_cross_gpu": len(gpus) > 1,
+                            "used_memory_mb": 0,
+                        }
+                        proc_info.update(m)
+                        if proc_info.get("kv_usage") and proc_info["used_memory_mb"] == 0 and gpus:
+                            proc_info["used_memory_mb"] = round(gpus[0].get("mem_total", 0) * proc_info["kv_usage"], 1)
+                        for g in gpus:
+                            info_copy = dict(proc_info)
+                            result[g.get("index")].append(info_copy)
+            except Exception:
+                pass
+
+        # 回退：端口扫描（WSL 探测失败时使用）
+        has_vllm2 = any(len(procs) > 0 for procs in result.values())
+        if not has_vllm2:
+            for port in range(8000, 8010):
+                auto_url = "http://localhost:" + str(port) + "/metrics"
+                if auto_url in metrics_cache:
+                    continue
+                try:
+                    m = _fetch_vllm_metrics(auto_url)
+                    if m:
+                        metrics_cache[auto_url] = m
+                        model_name = None
+                        try:
+                            import json as _json
+                            model_req = urllib.request.Request("http://localhost:" + str(port) + "/v1/models")
+                            model_resp = urllib.request.urlopen(model_req, timeout=1, context=ssl.create_default_context())
+                            model_data = _json.loads(model_resp.read().decode("utf-8", errors="replace"))
+                            if model_data.get("data"):
+                                model_name = model_data["data"][0].get("id")
+                        except Exception:
+                            pass
+                        proc_info = {
+                            "pid": -1,
+                            "name": "vLLM (auto)",
+                            "model_name": model_name,
+                            "cmdline": "auto-detected localhost:" + str(port),
+                            "metrics_url": auto_url,
+                            "gpu_indices": [g.get("index") for g in gpus],
+                            "is_cross_gpu": len(gpus) > 1,
+                            "used_memory_mb": 0,
+                        }
+                        proc_info.update(m)
+                        if proc_info.get("kv_usage") and proc_info["used_memory_mb"] == 0 and gpus:
+                            proc_info["used_memory_mb"] = round(gpus[0].get("mem_total", 0) * proc_info["kv_usage"], 1)
+                        for g in gpus:
+                            info_copy = dict(proc_info)
+                            result[g.get("index")].append(info_copy)
+                except Exception:
+                    pass
+
 
     except Exception as e:
         print(f"get_vllm_processes_by_gpu error: {e}")
@@ -610,20 +853,9 @@ def monitor_gpu(sample_interval_seconds=10):
             print(f"Monitor error: {e}")
             time.sleep(sample_interval_seconds)
 
-def _login_required(fn):
-    def wrapper(*args, **kwargs):
-        if not session.get("console_user"):
-            return redirect(url_for("console_login"))
-        return fn(*args, **kwargs)
-
-    wrapper.__name__ = fn.__name__
-    return wrapper
-
-
 @app.route("/")
-@_login_required
 def index():
-    """主页"""
+    """主页（需通过控制台携带 ?token= 访问）"""
     response = make_response(render_template("index.html"))
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
@@ -633,124 +865,14 @@ def index():
 
 
 
-def _get_console_user(username):
-    with lock:
-        c = db_conn.cursor()
-        c.execute("SELECT id, username, password_hash FROM console_users WHERE username = ?", (username,))
-        return c.fetchone()
-
-
-@app.route("/console/login", methods=["GET", "POST"])
-def console_login():
-    if request.method == "GET":
-        if session.get("console_user"):
-            return redirect(url_for("index"))
-        return make_response(render_template("console_login.html", error=None))
-
-    username = (request.form.get("username") or "").strip()
-    password = request.form.get("password") or ""
-
-    row = _get_console_user(username) if username else None
-    if not row:
-        return make_response(render_template("console_login.html", error="账号或密码错误"))
-
-    _, db_user, pw_hash = row
-    if not check_password_hash(pw_hash, password):
-        return make_response(render_template("console_login.html", error="账号或密码错误"))
-
-    session["console_user"] = db_user
-    return redirect(url_for("index"))
-
-
-@app.route("/console/logout", methods=["POST"])
-def console_logout():
-    session.pop("console_user", None)
-    return redirect(url_for("console_login"))
-
-
-@app.route("/console")
-@_login_required
-def console_index():
-    return make_response(render_template("console_index.html", username=session.get("console_user")))
-
-
-@app.route("/console/api/instances", methods=["GET", "POST"])
-@_login_required
-def console_instances():
-    if request.method == "GET":
-        with lock:
-            c = db_conn.cursor()
-            c.execute(
-                "SELECT id, name, base_url, metrics_url, notes FROM monitor_instances ORDER BY id DESC"
-            )
-            rows = c.fetchall()
-        items = [
-            {"id": r[0], "name": r[1], "base_url": r[2], "metrics_url": r[3], "notes": r[4]}
-            for r in rows
-        ]
-        return jsonify({"items": items})
-
-    data = request.get_json(silent=True) or {}
-    name = (data.get("name") or "").strip()
-    base_url = (data.get("base_url") or "").strip().rstrip("/")
-    metrics_url = (data.get("metrics_url") or "").strip() or None
-    notes = (data.get("notes") or "").strip() or None
-
-    if not name or not base_url:
-        return jsonify({"error": "name/base_url required"}), 400
-    if not (base_url.startswith("http://") or base_url.startswith("https://")):
-        return jsonify({"error": "base_url must start with http:// or https://"}), 400
-
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with lock:
-        c = db_conn.cursor()
-        c.execute(
-            "INSERT INTO monitor_instances (name, base_url, metrics_url, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (name, base_url, metrics_url, notes, now, now),
-        )
-        db_conn.commit()
-
-    return jsonify({"ok": True})
-
-
-@app.route("/console/api/instances/<int:instance_id>", methods=["PUT", "DELETE"])
-@_login_required
-def console_instance_item(instance_id):
-    if request.method == "DELETE":
-        with lock:
-            c = db_conn.cursor()
-            c.execute("DELETE FROM monitor_instances WHERE id = ?", (instance_id,))
-            db_conn.commit()
-        return jsonify({"ok": True})
-
-    data = request.get_json(silent=True) or {}
-    name = (data.get("name") or "").strip()
-    base_url = (data.get("base_url") or "").strip().rstrip("/")
-    metrics_url = (data.get("metrics_url") or "").strip() or None
-    notes = (data.get("notes") or "").strip() or None
-
-    if not name or not base_url:
-        return jsonify({"error": "name/base_url required"}), 400
-    if not (base_url.startswith("http://") or base_url.startswith("https://")):
-        return jsonify({"error": "base_url must start with http:// or https://"}), 400
-
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with lock:
-        c = db_conn.cursor()
-        c.execute(
-            "UPDATE monitor_instances SET name = ?, base_url = ?, metrics_url = ?, notes = ?, updated_at = ? WHERE id = ?",
-            (name, base_url, metrics_url, notes, now, instance_id),
-        )
-        db_conn.commit()
-
-    return jsonify({"ok": True})
 
 @app.route("/console-root")
 def console_root():
-    return redirect(url_for("console_index"))
+    return redirect(url_for("console.index"))
 
 
 @app.route("/api/gpu-history")
+@api_token_required
 def get_history():
     """获取GPU历史数据API"""
     with lock:
@@ -758,6 +880,7 @@ def get_history():
 
 
 @app.route('/api/query-history')
+@api_token_required
 def query_history():
     """按时间范围和GPU索引分页查询持久化样本。GET 参数: start, end, gpu, page, page_size"""
     start = request.args.get('start')  # 形如 '2026-05-07 10:00:00' 或 ISO
@@ -818,6 +941,7 @@ def query_history():
 
 
 @app.route('/api/query-history-chart')
+@api_token_required
 def query_history_chart():
     """按时间范围均匀采样历史数据，用于图表趋势展示。GET 参数: start, end, gpu, sample_size"""
     start = request.args.get('start')
@@ -868,6 +992,7 @@ def query_history_chart():
 
 
 @app.route('/api/alerts')
+@api_token_required
 def get_alerts():
     """返回最近的告警"""
     limit = int(request.args.get('limit', 50))
@@ -883,8 +1008,8 @@ def get_alerts():
 
 
 @app.route('/history')
-@_login_required
 def history_page():
+    """历史页（需通过控制台携带 ?token= 访问）"""
     response = make_response(render_template('history.html'))
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
@@ -893,6 +1018,7 @@ def history_page():
 
 
 @app.route("/api/gpu-info")
+@api_token_required
 def get_gpu():
     """获取当前GPU信息API"""
     with lock:

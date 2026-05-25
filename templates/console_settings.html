@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>API 设置 - 本地控制台</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #eef6ff 0%, #dbeafe 35%, #e0f2fe 100%);
+      min-height: 100vh;
+      padding: 24px;
+      color: #0f172a;
+    }
+    .wrap { max-width: 800px; margin: 0 auto; }
+    .top {
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      margin-bottom: 18px;
+    }
+    .title {
+      font-size: 22px; font-weight: 800; letter-spacing: .2px;
+      color:#0b2a5b;
+    }
+    .card {
+      background:#ffffff;
+      border: 1px solid #e6efff;
+      border-radius: 14px;
+      box-shadow: 0 10px 28px rgba(15, 102, 240, 0.08);
+      padding: 22px;
+      margin-bottom: 16px;
+    }
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    }
+    .muted { color:#64748b; }
+    .pill {
+      display:inline-block; padding:2px 8px; border-radius:999px;
+      border:1px solid #d9e6ff; background:#fbfdff;
+      color:#1f3b77; font-weight:700; font-size:12px;
+    }
+    .btn {
+      border: 1px solid #cfe2ff;
+      background: linear-gradient(180deg, #ffffff 0%, #f3f8ff 100%);
+      color:#0b2a5b;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-weight: 800;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .btn.primary {
+      border-color:#2b7bff;
+      background: linear-gradient(180deg, #2b7bff 0%, #0f66f0 100%);
+      color:#fff;
+      box-shadow: 0 10px 20px rgba(15,102,240,.22);
+    }
+    .btn.danger {
+      border-color:#fecaca;
+      background:#fff1f2;
+      color:#9f1239;
+    }
+    .btn.warning {
+      border-color:#fed7aa;
+      background:#fff7ed;
+      color:#9a3412;
+    }
+    .token-box {
+      background:#f8fafc;
+      border: 1px solid #d9e6ff;
+      border-radius: 10px;
+      padding: 14px 16px;
+      word-break: break-all;
+      font-size: 14px;
+      line-height: 1.6;
+      margin: 12px 0;
+    }
+    .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+    .msg-box {
+      margin-top: 12px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      display: none;
+    }
+    .msg-box.success { display:block; background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; }
+    .msg-box.error { display:block; background:#fff1f2; border:1px solid #fecaca; color:#9f1239; }
+    .nav { display:flex; gap:10px; align-items:center; }
+    .logout { display:flex; gap:10px; align-items:center; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div class="title">API 令牌设置</div>
+      <div class="nav">
+        <a class="btn" href="/console">实例管理</a>
+        <a class="btn" href="/console/users">用户管理</a>
+        <div class="logout">
+          <span class="pill">已登录：{{ username }}</span>
+          <form method="post" action="/console/logout">
+            <button class="btn" type="submit">退出</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="font-weight:900;color:#0b2a5b;margin-bottom:6px;">当前 API 令牌</div>
+      <div class="muted" style="margin-bottom:10px;font-size:13px;">
+        所有 <code>/api/*</code> 接口需要携带此令牌才能访问。
+        请将此令牌作为 <code>Authorization: Bearer &lt;令牌&gt;</code> 请求头传递，
+        或作为 URL 参数 <code>?token=&lt;令牌&gt;</code>。
+      </div>
+
+      <div id="tokenDisplay" class="token-box mono">加载中...</div>
+
+      <div class="actions">
+        <button class="btn primary" id="copyBtn">复制令牌</button>
+        <button class="btn warning" id="regenerateBtn">重新生成</button>
+      </div>
+
+      <div id="msg" class="msg-box"></div>
+    </div>
+
+    <div class="card" style="font-size:13px;color:#475569;">
+      <div style="font-weight:700;color:#0b2a5b;margin-bottom:8px;">使用方式</div>
+      <div style="margin-bottom:6px;">
+        <strong>请求头（推荐）:</strong>
+      </div>
+      <div class="mono" style="background:#f1f5f9;padding:8px 12px;border-radius:8px;margin-bottom:12px;">
+        curl -H "Authorization: Bearer &lt;令牌&gt;" http://host:5000/api/gpu-info
+      </div>
+      <div style="margin-bottom:6px;">
+        <strong>URL 参数:</strong>
+      </div>
+      <div class="mono" style="background:#f1f5f9;padding:8px 12px;border-radius:8px;">
+        curl "http://host:5000/api/gpu-info?token=&lt;令牌&gt;"
+      </div>
+    </div>
+
+    <div class="card" id="password" style="padding:24px;">
+      <div style="font-weight:900;color:#0b2a5b;margin-bottom:16px;font-size:16px;">修改密码</div>
+      <div class="row" style="display:flex;gap:14px;flex-wrap:wrap;">
+        <div class="field" style="flex:1;min-width:200px;">
+          <label style="display:block;font-size:12px;color:#49618a;margin-bottom:6px;font-weight:700;">当前密码</label>
+          <input id="oldPassword" type="password" placeholder="输入当前密码" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid #d9e6ff;outline:none;background:#fbfdff;" />
+        </div>
+        <div class="field" style="flex:1;min-width:200px;">
+          <label style="display:block;font-size:12px;color:#49618a;margin-bottom:6px;font-weight:700;">新密码</label>
+          <input id="newPassword" type="password" placeholder="至少4位" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid #d9e6ff;outline:none;background:#fbfdff;" />
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;margin-top:14px;">
+        <button class="btn primary" id="changePwdBtn" style="padding:10px 20px;">修改密码</button>
+        <div id="pwdMsg" style="font-size:13px;font-weight:700;"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('changePwdBtn').addEventListener('click', async () => {
+      const oldPw = document.getElementById('oldPassword').value;
+      const newPw = document.getElementById('newPassword').value;
+      const msgEl = document.getElementById('pwdMsg');
+      if (!oldPw || !newPw) { msgEl.textContent = '请填写当前密码和新密码'; msgEl.style.color = '#9f1239'; return; }
+      if (newPw.length < 4) { msgEl.textContent = '新密码至少 4 位'; msgEl.style.color = '#9f1239'; return; }
+      try {
+        const r = await fetch('/console/api/change-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ old_password: oldPw, new_password: newPw })
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status);
+        msgEl.textContent = '✓ 密码已修改成功';
+        msgEl.style.color = '#166534';
+        document.getElementById('oldPassword').value = '';
+        document.getElementById('newPassword').value = '';
+      } catch (err) {
+        msgEl.textContent = '✗ ' + err.message;
+        msgEl.style.color = '#9f1239';
+      }
+    });
+    const tokenDisplay = document.getElementById('tokenDisplay');
+    const msg = document.getElementById('msg');
+    let currentToken = '';
+
+    function showMsg(text, type) {
+      msg.textContent = text;
+      msg.className = 'msg-box ' + (type || 'success');
+    }
+
+    async function loadToken() {
+      try {
+        const r = await fetch('/console/api/settings/token');
+        const data = await r.json();
+        currentToken = data.token || '';
+        tokenDisplay.textContent = currentToken ? (currentToken.substring(0, 16) + '...') : '(空)';
+        tokenDisplay.title = currentToken;
+      } catch (err) {
+        tokenDisplay.textContent = '加载失败';
+        showMsg('加载令牌失败: ' + err.message, 'error');
+      }
+    }
+
+    document.getElementById('copyBtn').addEventListener('click', async () => {
+      if (!currentToken) return;
+      try {
+        // 显示完整令牌再复制
+        tokenDisplay.textContent = currentToken;
+        await navigator.clipboard.writeText(currentToken);
+        showMsg('令牌已复制到剪贴板');
+        setTimeout(() => {
+          tokenDisplay.textContent = currentToken.substring(0, 16) + '...';
+        }, 3000);
+      } catch {
+        showMsg('复制失败，请手动选择并复制', 'error');
+      }
+    });
+
+    document.getElementById('regenerateBtn').addEventListener('click', async () => {
+      if (!confirm('重新生成令牌后，旧的令牌将立即失效，确定继续？')) return;
+      try {
+        const r = await fetch('/console/api/settings/token', { method: 'POST' });
+        const data = await r.json();
+        if (data.token) {
+          currentToken = data.token;
+          tokenDisplay.textContent = currentToken;
+          showMsg('新令牌已生成！请立即复制保存，此令牌将不再完整显示。');
+        } else {
+          showMsg('生成失败', 'error');
+        }
+      } catch (err) {
+        showMsg('生成失败: ' + err.message, 'error');
+      }
+    });
+
+    // 点击令牌区域可切换显示/隐藏
+    tokenDisplay.addEventListener('click', () => {
+      if (!currentToken) return;
+      if (tokenDisplay.textContent.includes('...')) {
+        tokenDisplay.textContent = currentToken;
+      } else {
+        tokenDisplay.textContent = currentToken.substring(0, 16) + '...';
+      }
+    });
+
+    loadToken();
+  </script>
+</body>
+</html>
