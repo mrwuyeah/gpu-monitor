@@ -39,7 +39,7 @@ DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "localhost"),
     "port": int(os.environ.get("DB_PORT", "3306")),
     "user": os.environ.get("DB_USER", "root"),
-    "password": os.environ.get("DB_PASSWORD", ""),
+    "password": os.environ.get("DB_PASSWORD", "123456"),
     "database": os.environ.get("DB_NAME", "gpu_monitor"),
     "charset": "utf8mb4",
 }
@@ -130,8 +130,8 @@ def init_db():
             base_url TEXT NOT NULL,
             metrics_url TEXT,
             notes TEXT,
-            token TEXT DEFAULT '',
-            allowed_roles TEXT DEFAULT 'admin,senior,junior',
+            token VARCHAR(512) DEFAULT '',
+            allowed_roles VARCHAR(255) DEFAULT 'admin,senior,junior',
             created_at VARCHAR(255),
             updated_at VARCHAR(255)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
