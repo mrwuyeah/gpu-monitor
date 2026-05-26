@@ -36,10 +36,10 @@ LOG_FILE = os.path.join(BASE_DIR, "gpu_monitor_error.log")
 
 # MySQL configuration — set via environment variables or defaults
 DB_CONFIG = {
-    "host": os.environ.get("DB_HOST", "10.70.19.243"),
+    "host": os.environ.get("DB_HOST", "localhost"),
     "port": int(os.environ.get("DB_PORT", "3306")),
-    "user": os.environ.get("DB_USER", "model-monitor"),
-    "password": os.environ.get("DB_PASSWORD", "iVDbNxcRAU1A/CcD"),
+    "user": os.environ.get("DB_USER", "root"),
+    "password": os.environ.get("DB_PASSWORD", "123456"),
     "database": os.environ.get("DB_NAME", "gpu_monitor"),
     "charset": "utf8mb4",
 }
@@ -904,7 +904,7 @@ def query_history():
 
     count_sql = 'SELECT COUNT(1)' + where_sql
     data_sql = 'SELECT ts, cpu_util, gpu_index, name, gpu_util, mem_util, mem_used, mem_total, temp, power FROM samples WHERE 1=1'
-    data_sql += where_sql[len(' FROM samples WHERE 1=1'):] + ' ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?'
+    data_sql += where_sql[len(' FROM samples WHERE 1=1'):] + ' ORDER BY ts DESC, id DESC LIMIT %s OFFSET %s'
     count_params = list(params)
     data_params = list(params) + [page_size, offset]
 
