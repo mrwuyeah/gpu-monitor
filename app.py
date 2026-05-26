@@ -827,7 +827,7 @@ def monitor_gpu(sample_interval_seconds=10):
             with lock:
                 current_gpu_data = data_point
                 gpu_data_history.append(data_point)
-                # 持久化到sqlite，并记录高负载告警
+                # 持久化到MySQL，并记录高负载告警
                 try:
                     conn = get_conn()
                     try:
