@@ -214,7 +214,18 @@ def init_db():
     return get_conn  # return factory function instead of connection
 
 # 全局DB连接工厂（init_db 返回 get_conn 函数）
-get_conn = init_db()
+try:
+    get_conn = init_db()
+except Exception as e:
+    error_text = traceback.format_exc()
+    print(f"数据库连接失败: {e}")
+    print(f"请检查 MySQL 是否可用，当前配置: {DB_CONFIG['host']}:{DB_CONFIG['port']}, user={DB_CONFIG['user']}")
+    print(f"可通过环境变量 DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME 自定义")
+    print(f"详细错误:\n{error_text}")
+    with open(LOG_FILE, "a", encoding="utf-8") as log_file:
+        log_file.write(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 数据库连接失败\n")
+        log_file.write(error_text)
+    sys.exit(1)
 
 # 初始化认证模块并注册控制台蓝本
 init_auth(app, get_conn, lock)
@@ -915,11 +926,6 @@ def query_history():
         where_sql += ' AND host = %s'
         params.append(host)
 
-    host = request.args.get('host')
-    if host:
-        where_sql += ' AND host = %s'
-        params.append(host)
-
     if gpu and gpu.lower() != 'all':
         try:
             idx = int(gpu)
@@ -948,7 +954,7 @@ def query_history():
 
         def to_item(r):
             return {
-                'ts': r[0], 'cpu_util': r[1], 'gpu_index': r[2], 'name': r[3], 'gpu_util': r[4], 'mem_util': r[5], 'mem_used': r[6], 'mem_total': r[7], 'temp': r[8], 'power': r[9]
+                'ts': r[0], 'cpu_util': r[1], 'gpu_index': r[2], 'name': r[3], 'gpu_util': r[4], 'mem_util': r[5], 'mem_used': r[6], 'mem_total': r[7], 'temp': r[8], 'power': r[9], 'host': r[10]
             }
 
         result = [to_item(r) for r in rows]
@@ -1004,11 +1010,6 @@ def query_history_chart():
         where_sql += ' AND host = %s'
         params.append(host)
 
-    host = request.args.get('host')
-    if host:
-        where_sql += ' AND host = %s'
-        params.append(host)
-
     if gpu and gpu.lower() != 'all':
         try:
             idx = int(gpu)
@@ -1032,7 +1033,7 @@ def query_history_chart():
 
         def to_item(r):
             return {
-                'ts': r[0], 'cpu_util': r[1], 'gpu_index': r[2], 'name': r[3], 'gpu_util': r[4], 'mem_util': r[5], 'mem_used': r[6], 'mem_total': r[7], 'temp': r[8], 'power': r[9]
+                'ts': r[0], 'cpu_util': r[1], 'gpu_index': r[2], 'name': r[3], 'gpu_util': r[4], 'mem_util': r[5], 'mem_used': r[6], 'mem_total': r[7], 'temp': r[8], 'power': r[9], 'host': r[10]
             }
 
         sampled_rows = uniform_sample_rows(rows, sample_size)
