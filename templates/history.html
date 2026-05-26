@@ -39,6 +39,7 @@
                     <option value="1">GPU1</option>
                 </select>
             </label>
+            <label>主机: <input id="hostFilter" placeholder="留空=全部" style="width:130px;padding:8px 10px;border-radius:6px;border:1px solid #dde3ea;"></label>
             <button id="queryBtn">查询</button>
         </div>
 
@@ -61,7 +62,7 @@
         <div id="tableWrap">
             <table id="resultTable">
                 <thead>
-                    <tr><th>时间</th><th>CPU(%)</th><th>显存(used/total MB)</th><th>温度(°C)</th><th>功耗(W)</th></tr>
+                    <tr><th>时间</th><th>主机</th><th>CPU(%)</th><th>显存(used/total MB)</th><th>温度(°C)</th><th>功耗(W)</th></tr>
                 </thead>
                 <tbody></tbody>
             </table>
@@ -110,7 +111,7 @@
             tableBody.innerHTML = '';
             rows.forEach(r => {
                 const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${r.ts}</td><td>${(r.cpu_util||0).toFixed(1)}</td><td>${(r.mem_used||0).toFixed(0)} / ${(r.mem_total||0).toFixed(0)} MB</td><td>${(r.temp||0).toFixed(1)}</td><td>${(r.power||0).toFixed(1)}</td>`;
+                tr.innerHTML = `<td>${r.ts}</td><td>${r.host||'-'}</td><td>${(r.cpu_util||0).toFixed(1)}</td><td>${(r.mem_used||0).toFixed(0)} / ${(r.mem_total||0).toFixed(0)} MB</td><td>${(r.temp||0).toFixed(1)}</td><td>${(r.power||0).toFixed(1)}</td>`;
                 tableBody.appendChild(tr);
             });
         }
@@ -215,6 +216,7 @@
             currentFilters.start = isoForInput(document.getElementById('start').value);
             currentFilters.end = isoForInput(document.getElementById('end').value);
             currentFilters.gpu = document.getElementById('gpu').value;
+            currentFilters.host = document.getElementById('hostFilter').value.trim() || '';
             currentPage = 1;
             await Promise.all([
                 loadTablePage(1),
@@ -227,6 +229,7 @@
             if (currentFilters.start) params.append('start', currentFilters.start);
             if (currentFilters.end) params.append('end', currentFilters.end);
             if (currentFilters.gpu) params.append('gpu', currentFilters.gpu);
+            if (currentFilters.host) params.append('host', currentFilters.host);
             params.append('page', page);
             params.append('page_size', pageSize);
 
@@ -259,6 +262,7 @@
             if (currentFilters.start) params.append('start', currentFilters.start);
             if (currentFilters.end) params.append('end', currentFilters.end);
             if (currentFilters.gpu) params.append('gpu', currentFilters.gpu);
+            if (currentFilters.host) params.append('host', currentFilters.host);
             params.append('sample_size', sampleSize);
 
             try {

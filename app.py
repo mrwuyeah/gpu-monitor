@@ -4,6 +4,7 @@ import subprocess
 import sys
 import threading
 import time
+import socket
 import traceback
 from collections import deque
 from datetime import datetime
@@ -47,6 +48,8 @@ DB_CONFIG = {
 def get_conn():
     """Create a new MySQL connection."""
     return pymysql.connect(**DB_CONFIG)
+
+_HOST_NAME = os.environ.get("HOST_NAME", socket.gethostname())
 
 app = Flask(__name__, template_folder=resource_path("templates"))
 # session secret key will be loaded from DB in init_db()
@@ -100,16 +103,28 @@ def init_db():
             mem_used DOUBLE,
             mem_total DOUBLE,
             temp DOUBLE,
-            power DOUBLE
+            power DOUBLE,
+            host VARCHAR(255) DEFAULT ''
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """)
+
+    # Add host column if upgrading from old schema
+    try:
+        c.execute("ALTER TABLE samples ADD COLUMN host VARCHAR(255) DEFAULT ''")
+    except Exception:
+        pass
+    try:
+        c.execute("ALTER TABLE alerts ADD COLUMN host VARCHAR(255) DEFAULT ''")
+    except Exception:
+        pass
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS alerts (
             id INT AUTO_INCREMENT PRIMARY KEY,
             ts VARCHAR(255),
             gpu_index INT,
-            gpu_util DOUBLE
+            gpu_util DOUBLE,
+            host VARCHAR(255) DEFAULT ''
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """)
 
@@ -819,7 +834,7 @@ def monitor_gpu(sample_interval_seconds=10):
                         c = conn.cursor()
                         for gpu in gpus:
                             c.execute(
-                                "INSERT INTO samples (ts, cpu_util, gpu_index, name, gpu_util, mem_util, mem_used, mem_total, temp, power) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                                "INSERT INTO samples (ts, cpu_util, gpu_index, name, gpu_util, mem_util, mem_used, mem_total, temp, power, host) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                                 (
                                     timestamp,
                                     cpu_util,
@@ -831,12 +846,13 @@ def monitor_gpu(sample_interval_seconds=10):
                                     gpu.get('mem_total'),
                                     gpu.get('temp'),
                                     gpu.get('power'),
+                                    _HOST_NAME,
                                 ),
                             )
                             if gpu.get('mem_util') is not None and gpu.get('mem_util') >= 90.0:
                                 c.execute(
-                                    "INSERT INTO alerts (ts, gpu_index, gpu_util) VALUES (%s, %s, %s)",
-                                    (timestamp, gpu.get('index'), gpu.get('mem_util')),
+                                    "INSERT INTO alerts (ts, gpu_index, gpu_util, host) VALUES (%s, %s, %s, %s)",
+                                    (timestamp, gpu.get('index'), gpu.get('mem_util'), _HOST_NAME),
                                 )
                         conn.commit()
                     finally:
@@ -894,6 +910,16 @@ def query_history():
     if end:
         where_sql += ' AND ts <= %s'
         params.append(end)
+    host = request.args.get('host')
+    if host:
+        where_sql += ' AND host = %s'
+        params.append(host)
+
+    host = request.args.get('host')
+    if host:
+        where_sql += ' AND host = %s'
+        params.append(host)
+
     if gpu and gpu.lower() != 'all':
         try:
             idx = int(gpu)
@@ -903,7 +929,7 @@ def query_history():
             pass
 
     count_sql = 'SELECT COUNT(1)' + where_sql
-    data_sql = 'SELECT ts, cpu_util, gpu_index, name, gpu_util, mem_util, mem_used, mem_total, temp, power FROM samples WHERE 1=1'
+    data_sql = 'SELECT ts, cpu_util, gpu_index, name, gpu_util, mem_util, mem_used, mem_total, temp, power, host FROM samples WHERE 1=1'
     data_sql += where_sql[len(' FROM samples WHERE 1=1'):] + ' ORDER BY ts DESC, id DESC LIMIT %s OFFSET %s'
     count_params = list(params)
     data_params = list(params) + [page_size, offset]
@@ -957,6 +983,16 @@ def query_history_chart():
     if end:
         where_sql += ' AND ts <= %s'
         params.append(end)
+    host = request.args.get('host')
+    if host:
+        where_sql += ' AND host = %s'
+        params.append(host)
+
+    host = request.args.get('host')
+    if host:
+        where_sql += ' AND host = %s'
+        params.append(host)
+
     if gpu and gpu.lower() != 'all':
         try:
             idx = int(gpu)
@@ -965,7 +1001,7 @@ def query_history_chart():
         except ValueError:
             pass
 
-    data_sql = 'SELECT ts, cpu_util, gpu_index, name, gpu_util, mem_util, mem_used, mem_total, temp, power FROM samples WHERE 1=1'
+    data_sql = 'SELECT ts, cpu_util, gpu_index, name, gpu_util, mem_util, mem_used, mem_total, temp, power, host FROM samples WHERE 1=1'
     data_sql += where_sql[len(' FROM samples WHERE 1=1'):] + ' ORDER BY ts ASC, id ASC'
 
     try:

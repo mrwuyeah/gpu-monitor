@@ -268,7 +268,7 @@
             </div>
         </div>
         
-        <div class="timestamp" id="timestamp"></div>
+        <div class="timestamp" id="timestamp"></div><div id="hostnameDisplay" style="color:#94a3b8;font-size:0.9rem;margin-top:4px;"></div>
     </div>
 
     <script>
@@ -423,7 +423,9 @@
                 });
                 
                 document.getElementById('gpuContainer').innerHTML = html;
-                document.getElementById('timestamp').textContent = `最后更新: ${new Date().toLocaleTimeString('zh-CN')}`;
+                const ts = document.getElementById('timestamp'); const hs = document.getElementById('hostnameDisplay');
+                ts.textContent = `最后更新: ${new Date().toLocaleTimeString('zh-CN')}`;
+                if (data.host) hs.textContent = `主机: ${data.host}`;
                 // CPU 显示
                 if (data.cpu_util !== undefined) {
                     document.getElementById('cpuPercent').textContent = data.cpu_util.toFixed(1) + '%';
