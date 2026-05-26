@@ -7,7 +7,7 @@ import time
 import traceback
 from collections import deque
 from datetime import datetime
-import sqlite3
+import pymysql
 import psutil
 import csv
 import io
@@ -33,7 +33,20 @@ if getattr(sys, 'frozen', False):
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE = os.path.join(BASE_DIR, "gpu_monitor_error.log")
-DB_FILE = os.path.join(BASE_DIR, "gpu_usage.db")
+
+# MySQL configuration — set via environment variables or defaults
+DB_CONFIG = {
+    "host": os.environ.get("DB_HOST", "localhost"),
+    "port": int(os.environ.get("DB_PORT", "3306")),
+    "user": os.environ.get("DB_USER", "root"),
+    "password": os.environ.get("DB_PASSWORD", ""),
+    "database": os.environ.get("DB_NAME", "gpu_monitor"),
+    "charset": "utf8mb4",
+}
+
+def get_conn():
+    """Create a new MySQL connection."""
+    return pymysql.connect(**DB_CONFIG)
 
 app = Flask(__name__, template_folder=resource_path("templates"))
 # session secret key will be loaded from DB in init_db()
@@ -72,114 +85,84 @@ def uniform_sample_rows(rows, sample_size):
 # 初始化数据库
 
 def init_db():
-    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+    conn = get_conn()
     c = conn.cursor()
-    c.execute(
-        """
+
+    c.execute("""
         CREATE TABLE IF NOT EXISTS samples (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ts TEXT,
-            cpu_util REAL,
-            gpu_index INTEGER,
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            ts VARCHAR(255),
+            cpu_util DOUBLE,
+            gpu_index INT,
             name TEXT,
-            gpu_util REAL,
-            mem_util REAL,
-            mem_used REAL,
-            mem_total REAL,
-            temp REAL,
-            power REAL
-        )
-        """
-    )
-    c.execute(
-        """
+            gpu_util DOUBLE,
+            mem_util DOUBLE,
+            mem_used DOUBLE,
+            mem_total DOUBLE,
+            temp DOUBLE,
+            power DOUBLE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """)
+
+    c.execute("""
         CREATE TABLE IF NOT EXISTS alerts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ts TEXT,
-            gpu_index INTEGER,
-            gpu_util REAL
-        )
-        """
-    )
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            ts VARCHAR(255),
+            gpu_index INT,
+            gpu_util DOUBLE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """)
 
-    c.execute(
-        """
+    c.execute("""
         CREATE TABLE IF NOT EXISTS console_users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            username VARCHAR(255) UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'user',
-            created_at TEXT
-        )
-        """
-    )
+            role VARCHAR(50) NOT NULL DEFAULT 'user',
+            created_at VARCHAR(255)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """)
 
-    # 兼容旧数据库：添加 role 列（如果不存在）
-    try:
-        c.execute("ALTER TABLE console_users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
-    except Exception:
-        pass
-
-    # 兼容旧数据库：添加 token 列到 monitor_instances（如果不存在）
-    try:
-        c.execute("ALTER TABLE monitor_instances ADD COLUMN token TEXT DEFAULT ''")
-    except Exception:
-        pass
-
-    # 兼容旧数据库：添加 allowed_roles 列（如果不存在）
-    try:
-        c.execute("ALTER TABLE monitor_instances ADD COLUMN allowed_roles TEXT DEFAULT 'admin,senior,junior'")
-    except Exception:
-        pass
-
-    c.execute(
-        """
+    c.execute("""
         CREATE TABLE IF NOT EXISTS monitor_instances (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
             base_url TEXT NOT NULL,
             metrics_url TEXT,
             notes TEXT,
             token TEXT DEFAULT '',
             allowed_roles TEXT DEFAULT 'admin,senior,junior',
-            created_at TEXT,
-            updated_at TEXT
-        )
-        """
-    )
+            created_at VARCHAR(255),
+            updated_at VARCHAR(255)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """)
 
-    c.execute(
-        """
+    c.execute("""
         CREATE TABLE IF NOT EXISTS api_settings (
-            key TEXT PRIMARY KEY,
+            `key` VARCHAR(255) PRIMARY KEY,
             value TEXT NOT NULL,
-            updated_at TEXT
-        )
-        """
-    )
+            updated_at VARCHAR(255)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """)
 
     conn.commit()
 
     # ensure default super admin: yofc
     try:
-        c.execute("SELECT id FROM console_users WHERE username = ?", ("yofc",))
+        c.execute("SELECT id FROM console_users WHERE username = %s", ("yofc",))
         row = c.fetchone()
         if row is None:
             c.execute(
-                "INSERT INTO console_users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+                "INSERT INTO console_users (username, password_hash, role, created_at) VALUES (%s, %s, %s, %s)",
                 ("yofc", generate_password_hash("K9#mP2$vL5@nQ8*xW3!z"), "admin", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
             )
-            conn.commit()
-        else:
-            # 确保 yofc 是 admin 角色
-            c.execute("UPDATE console_users SET role = 'admin' WHERE username = 'yofc'")
             conn.commit()
     except Exception:
         pass
 
     # ensure default API token
     try:
-        c.execute("SELECT value FROM api_settings WHERE key = 'api_token'")
+        c.execute("SELECT value FROM api_settings WHERE `key` = 'api_token'")
         row = c.fetchone()
         if row:
             current_token = row[0]
@@ -187,7 +170,7 @@ def init_db():
         else:
             default_token = secrets.token_urlsafe(32)
             c.execute(
-                "INSERT INTO api_settings (key, value, updated_at) VALUES (?, ?, ?)",
+                "INSERT INTO api_settings (`key`, value, updated_at) VALUES (%s, %s, %s)",
                 ('api_token', default_token, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
             )
             conn.commit()
@@ -197,14 +180,14 @@ def init_db():
 
     # ensure session secret key (persist across restarts)
     try:
-        c.execute("SELECT value FROM api_settings WHERE key = 'session_secret'")
+        c.execute("SELECT value FROM api_settings WHERE `key` = 'session_secret'")
         row = c.fetchone()
         if row:
             app.secret_key = row[0]
         else:
             new_key = secrets.token_hex(32)
             c.execute(
-                "INSERT INTO api_settings (key, value, updated_at) VALUES (?, ?, ?)",
+                "INSERT INTO api_settings (`key`, value, updated_at) VALUES (%s, %s, %s)",
                 ('session_secret', new_key, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
             )
             conn.commit()
@@ -212,13 +195,14 @@ def init_db():
     except Exception:
         pass
 
-    return conn
+    conn.close()
+    return get_conn  # return factory function instead of connection
 
-# 全局DB连接（通过 lock 保证并发访问安全）
-db_conn = init_db()
+# 全局DB连接工厂（init_db 返回 get_conn 函数）
+get_conn = init_db()
 
 # 初始化认证模块并注册控制台蓝本
-init_auth(app, db_conn, lock)
+init_auth(app, get_conn, lock)
 app.register_blueprint(console_bp)
 
 def _parse_nvidia_smi_csv(text):
@@ -433,11 +417,15 @@ def _fetch_vllm_metrics(metrics_url):
 def _get_active_metrics_url():
     try:
         with lock:
-            c = db_conn.cursor()
-            c.execute(
-                "SELECT metrics_url FROM monitor_instances WHERE metrics_url IS NOT NULL AND metrics_url != '' ORDER BY id DESC LIMIT 1"
-            )
-            row = c.fetchone()
+            conn = get_conn()
+            try:
+                c = conn.cursor()
+                c.execute(
+                    "SELECT metrics_url FROM monitor_instances WHERE metrics_url IS NOT NULL AND metrics_url != '' ORDER BY id DESC LIMIT 1"
+                )
+                row = c.fetchone()
+            finally:
+                conn.close()
         return row[0] if row and row[0] else None
     except Exception:
         return None
@@ -684,37 +672,41 @@ def get_vllm_processes_by_gpu(gpus):
         # 补充：从控制台已配置实例中采集 vLLM metrics（支持 WSL 等跨环境场景）
         try:
             with lock:
-                c = db_conn.cursor()
-                c.execute(
-                    "SELECT metrics_url FROM monitor_instances WHERE metrics_url IS NOT NULL AND metrics_url != '' ORDER BY id DESC"
-                )
-                for db_row in c.fetchall():
-                    murl = db_row[0]
-                    if not murl:
-                        continue
-                    if murl in metrics_cache:
-                        metrics = metrics_cache[murl]
-                    else:
-                        metrics = _fetch_vllm_metrics(murl)
-                        metrics_cache[murl] = metrics
-                    if metrics:
-                        proc_info = {
-                            "pid": -1,
-                            "name": "vLLM (remote)",
-                            "model_name": None,
-                            "cmdline": "",
-                            "metrics_url": murl,
-                            "gpu_indices": [g.get("index") for g in gpus],
-                            "is_cross_gpu": len(gpus) > 1,
-                            "used_memory_mb": 0,
-                        }
-                        proc_info.update(metrics)
-                        if proc_info.get("kv_usage") and proc_info["used_memory_mb"] == 0 and gpus:
-                            proc_info["used_memory_mb"] = round(gpus[0].get("mem_total", 0) * proc_info["kv_usage"], 1)
-                        for g in gpus:
-                            gpu_idx = g.get("index")
-                            info_copy = dict(proc_info)
-                            result[gpu_idx].append(info_copy)
+                conn = get_conn()
+                try:
+                    c = conn.cursor()
+                    c.execute(
+                        "SELECT metrics_url FROM monitor_instances WHERE metrics_url IS NOT NULL AND metrics_url != '' ORDER BY id DESC"
+                    )
+                    for db_row in c.fetchall():
+                        murl = db_row[0]
+                        if not murl:
+                            continue
+                        if murl in metrics_cache:
+                            metrics = metrics_cache[murl]
+                        else:
+                            metrics = _fetch_vllm_metrics(murl)
+                            metrics_cache[murl] = metrics
+                        if metrics:
+                            proc_info = {
+                                "pid": -1,
+                                "name": "vLLM (remote)",
+                                "model_name": None,
+                                "cmdline": "",
+                                "metrics_url": murl,
+                                "gpu_indices": [g.get("index") for g in gpus],
+                                "is_cross_gpu": len(gpus) > 1,
+                                "used_memory_mb": 0,
+                            }
+                            proc_info.update(metrics)
+                            if proc_info.get("kv_usage") and proc_info["used_memory_mb"] == 0 and gpus:
+                                proc_info["used_memory_mb"] = round(gpus[0].get("mem_total", 0) * proc_info["kv_usage"], 1)
+                            for g in gpus:
+                                gpu_idx = g.get("index")
+                                info_copy = dict(proc_info)
+                                result[gpu_idx].append(info_copy)
+                finally:
+                    conn.close()
         except Exception:
             pass
 
@@ -822,29 +814,33 @@ def monitor_gpu(sample_interval_seconds=10):
                 gpu_data_history.append(data_point)
                 # 持久化到sqlite，并记录高负载告警
                 try:
-                    c = db_conn.cursor()
-                    for gpu in gpus:
-                        c.execute(
-                            "INSERT INTO samples (ts, cpu_util, gpu_index, name, gpu_util, mem_util, mem_used, mem_total, temp, power) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                            (
-                                timestamp,
-                                cpu_util,
-                                gpu.get('index'),
-                                gpu.get('name'),
-                                gpu.get('gpu_util'),
-                                gpu.get('mem_util'),
-                                gpu.get('mem_used'),
-                                gpu.get('mem_total'),
-                                gpu.get('temp'),
-                                gpu.get('power'),
-                            ),
-                        )
-                        if gpu.get('mem_util') is not None and gpu.get('mem_util') >= 90.0:
+                    conn = get_conn()
+                    try:
+                        c = conn.cursor()
+                        for gpu in gpus:
                             c.execute(
-                                "INSERT INTO alerts (ts, gpu_index, gpu_util) VALUES (?, ?, ?)",
-                                (timestamp, gpu.get('index'), gpu.get('mem_util')),
+                                "INSERT INTO samples (ts, cpu_util, gpu_index, name, gpu_util, mem_util, mem_used, mem_total, temp, power) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                                (
+                                    timestamp,
+                                    cpu_util,
+                                    gpu.get('index'),
+                                    gpu.get('name'),
+                                    gpu.get('gpu_util'),
+                                    gpu.get('mem_util'),
+                                    gpu.get('mem_used'),
+                                    gpu.get('mem_total'),
+                                    gpu.get('temp'),
+                                    gpu.get('power'),
+                                ),
                             )
-                    db_conn.commit()
+                            if gpu.get('mem_util') is not None and gpu.get('mem_util') >= 90.0:
+                                c.execute(
+                                    "INSERT INTO alerts (ts, gpu_index, gpu_util) VALUES (%s, %s, %s)",
+                                    (timestamp, gpu.get('index'), gpu.get('mem_util')),
+                                )
+                        conn.commit()
+                    finally:
+                        conn.close()
                 except Exception as e:
                     print(f"DB write error: {e}")
 
@@ -893,15 +889,15 @@ def query_history():
     where_sql = ' FROM samples WHERE 1=1'
     params = []
     if start:
-        where_sql += ' AND ts >= ?'
+        where_sql += ' AND ts >= %s'
         params.append(start)
     if end:
-        where_sql += ' AND ts <= ?'
+        where_sql += ' AND ts <= %s'
         params.append(end)
     if gpu and gpu.lower() != 'all':
         try:
             idx = int(gpu)
-            where_sql += ' AND gpu_index = ?'
+            where_sql += ' AND gpu_index = %s'
             params.append(idx)
         except ValueError:
             pass
@@ -914,11 +910,15 @@ def query_history():
 
     try:
         with lock:
-            c = db_conn.cursor()
-            c.execute(count_sql, count_params)
-            total = c.fetchone()[0]
-            c.execute(data_sql, data_params)
-            rows = c.fetchall()
+            conn = get_conn()
+            try:
+                c = conn.cursor()
+                c.execute(count_sql, count_params)
+                total = c.fetchone()[0]
+                c.execute(data_sql, data_params)
+                rows = c.fetchall()
+            finally:
+                conn.close()
 
         def to_item(r):
             return {
@@ -952,15 +952,15 @@ def query_history_chart():
     where_sql = ' FROM samples WHERE 1=1'
     params = []
     if start:
-        where_sql += ' AND ts >= ?'
+        where_sql += ' AND ts >= %s'
         params.append(start)
     if end:
-        where_sql += ' AND ts <= ?'
+        where_sql += ' AND ts <= %s'
         params.append(end)
     if gpu and gpu.lower() != 'all':
         try:
             idx = int(gpu)
-            where_sql += ' AND gpu_index = ?'
+            where_sql += ' AND gpu_index = %s'
             params.append(idx)
         except ValueError:
             pass
@@ -970,9 +970,13 @@ def query_history_chart():
 
     try:
         with lock:
-            c = db_conn.cursor()
-            c.execute(data_sql, params)
-            rows = c.fetchall()
+            conn = get_conn()
+            try:
+                c = conn.cursor()
+                c.execute(data_sql, params)
+                rows = c.fetchall()
+            finally:
+                conn.close()
 
         def to_item(r):
             return {
@@ -998,9 +1002,13 @@ def get_alerts():
     limit = int(request.args.get('limit', 50))
     try:
         with lock:
-            c = db_conn.cursor()
-            c.execute('SELECT ts, gpu_index, gpu_util FROM alerts ORDER BY id DESC LIMIT ?', (limit,))
-            rows = c.fetchall()
+            conn = get_conn()
+            try:
+                c = conn.cursor()
+                c.execute('SELECT ts, gpu_index, gpu_util FROM alerts ORDER BY id DESC LIMIT %s', (limit,))
+                rows = c.fetchall()
+            finally:
+                conn.close()
         result = [{'ts': r[0], 'gpu_index': r[1], 'gpu_util': r[2]} for r in rows]
         return jsonify(result)
     except Exception as e:

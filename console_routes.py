@@ -29,9 +29,8 @@ def _get_db():
 @console_bp.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "GET":
-        # Always show login form; if already logged in, show a note
         logged_in_user = session.get("console_user")
-        extra_note = f"\u5f53\u524d\u5df2\u767b\u5f55\u4e3a {logged_in_user}\uff0c\u8bf7\u91cd\u65b0\u767b\u5f55\u4ee5\u5207\u6362\u8d26\u53f7\u3002" if logged_in_user else None
+        extra_note = f"当前已登录为 {logged_in_user}，请重新登录以切换账号。" if logged_in_user else None
         resp = make_response(render_template("console_login.html", error=None, logged_in_hint=extra_note))
         resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return resp
@@ -89,7 +88,7 @@ def settings():
 @login_required
 @admin_required
 def api_settings_token():
-    db, lk = _get_db()
+    get_conn, lk = _get_db()
 
     if request.method == "GET":
         token = get_api_token()
@@ -99,12 +98,16 @@ def api_settings_token():
     new_token = secrets.token_urlsafe(32)
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with lk:
-        c = db.cursor()
-        c.execute(
-            "INSERT OR REPLACE INTO api_settings (key, value, updated_at) VALUES (?, ?, ?)",
-            ("api_token", new_token, now),
-        )
-        db.commit()
+        conn = get_conn()
+        try:
+            c = conn.cursor()
+            c.execute(
+                "REPLACE INTO api_settings (`key`, value, updated_at) VALUES (%s, %s, %s)",
+                ("api_token", new_token, now),
+            )
+            conn.commit()
+        finally:
+            conn.close()
     return jsonify({"token": new_token})
 
 
@@ -134,11 +137,15 @@ def change_password():
         return jsonify({"error": "旧密码错误"}), 403
 
     new_hash = generate_password_hash(new_pw)
-    db, lk = _get_db()
+    get_conn, lk = _get_db()
     with lk:
-        c = db.cursor()
-        c.execute("UPDATE console_users SET password_hash = ? WHERE username = ?", (new_hash, username))
-        db.commit()
+        conn = get_conn()
+        try:
+            c = conn.cursor()
+            c.execute("UPDATE console_users SET password_hash = %s WHERE username = %s", (new_hash, username))
+            conn.commit()
+        finally:
+            conn.close()
     return jsonify({"ok": True, "message": "密码已修改"})
 
 
@@ -148,15 +155,19 @@ def change_password():
 @console_bp.route("/api/instances", methods=["GET", "POST"])
 @login_required
 def instances():
-    db, lk = _get_db()
+    get_conn, lk = _get_db()
 
     if request.method == "GET":
         with lk:
-            c = db.cursor()
-            c.execute(
-                "SELECT id, name, base_url, metrics_url, notes, token, allowed_roles FROM monitor_instances ORDER BY id DESC"
-            )
-            rows = c.fetchall()
+            conn = get_conn()
+            try:
+                c = conn.cursor()
+                c.execute(
+                    "SELECT id, name, base_url, metrics_url, notes, token, allowed_roles FROM monitor_instances ORDER BY id DESC"
+                )
+                rows = c.fetchall()
+            finally:
+                conn.close()
         items = []
         user_role = get_current_user_role()
         for r in rows:
@@ -171,6 +182,7 @@ def instances():
                 })
         return jsonify({"items": items})
 
+    # POST: 创建新实例
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
     base_url = (data.get("base_url") or "").strip().rstrip("/")
@@ -188,27 +200,36 @@ def instances():
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with lk:
-        c = db.cursor()
-        c.execute(
-            "INSERT INTO monitor_instances (name, base_url, metrics_url, notes, token, allowed_roles, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (name, base_url, metrics_url, notes, token, allowed_roles, now, now),
-        )
-        db.commit()
+        conn = get_conn()
+        try:
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO monitor_instances (name, base_url, metrics_url, notes, token, allowed_roles, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (name, base_url, metrics_url, notes, token, allowed_roles, now, now),
+            )
+            conn.commit()
+        finally:
+            conn.close()
     return jsonify({"ok": True})
 
 
 @console_bp.route("/api/instances/<int:instance_id>", methods=["PUT", "DELETE"])
 @login_required
 def instance_item(instance_id):
-    db, lk = _get_db()
+    get_conn, lk = _get_db()
 
     if request.method == "DELETE":
         with lk:
-            c = db.cursor()
-            c.execute("DELETE FROM monitor_instances WHERE id = ?", (instance_id,))
-            db.commit()
+            conn = get_conn()
+            try:
+                c = conn.cursor()
+                c.execute("DELETE FROM monitor_instances WHERE id = %s", (instance_id,))
+                conn.commit()
+            finally:
+                conn.close()
         return jsonify({"ok": True})
 
+    # PUT: 更新实例
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
     base_url = (data.get("base_url") or "").strip().rstrip("/")
@@ -226,12 +247,16 @@ def instance_item(instance_id):
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with lk:
-        c = db.cursor()
-        c.execute(
-            "UPDATE monitor_instances SET name = ?, base_url = ?, metrics_url = ?, notes = ?, token = ?, allowed_roles = ?, updated_at = ? WHERE id = ?",
-            (name, base_url, metrics_url, notes, token, allowed_roles, now, instance_id),
-        )
-        db.commit()
+        conn = get_conn()
+        try:
+            c = conn.cursor()
+            c.execute(
+                "UPDATE monitor_instances SET name = %s, base_url = %s, metrics_url = %s, notes = %s, token = %s, allowed_roles = %s, updated_at = %s WHERE id = %s",
+                (name, base_url, metrics_url, notes, token, allowed_roles, now, instance_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
     return jsonify({"ok": True})
 
 
@@ -253,15 +278,19 @@ def users_page():
 @login_required
 @admin_required
 def api_users():
-    db, lk = _get_db()
+    get_conn, lk = _get_db()
 
     if request.method == "GET":
         with lk:
-            c = db.cursor()
-            c.execute(
-                "SELECT id, username, role, created_at FROM console_users ORDER BY id ASC"
-            )
-            rows = c.fetchall()
+            conn = get_conn()
+            try:
+                c = conn.cursor()
+                c.execute(
+                    "SELECT id, username, role, created_at FROM console_users ORDER BY id ASC"
+                )
+                rows = c.fetchall()
+            finally:
+                conn.close()
         items = [
             {"id": r[0], "username": r[1], "role": r[2], "created_at": r[3]}
             for r in rows
@@ -285,12 +314,16 @@ def api_users():
     pw_hash = generate_password_hash(password)
     try:
         with lk:
-            c = db.cursor()
-            c.execute(
-                "INSERT INTO console_users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
-                (username, pw_hash, role, now),
-            )
-            db.commit()
+            conn = get_conn()
+            try:
+                c = conn.cursor()
+                c.execute(
+                    "INSERT INTO console_users (username, password_hash, role, created_at) VALUES (%s, %s, %s, %s)",
+                    (username, pw_hash, role, now),
+                )
+                conn.commit()
+            finally:
+                conn.close()
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"error": f"创建失败（用户名可能已存在）: {str(e)}"}), 400
@@ -300,18 +333,22 @@ def api_users():
 @login_required
 @admin_required
 def api_user_delete(user_id):
-    db, lk = _get_db()
+    get_conn, lk = _get_db()
     with lk:
-        c = db.cursor()
-        # 不允许删除超级管理员
-        c.execute("SELECT username, role FROM console_users WHERE id = ?", (user_id,))
-        row = c.fetchone()
-        if not row:
-            return jsonify({"error": "用户不存在"}), 404
-        if row[1] == "admin":
-            return jsonify({"error": "不能删除超级管理员"}), 400
-        c.execute("DELETE FROM console_users WHERE id = ?", (user_id,))
-        db.commit()
+        conn = get_conn()
+        try:
+            c = conn.cursor()
+            # 不允许删除超级管理员
+            c.execute("SELECT username, role FROM console_users WHERE id = %s", (user_id,))
+            row = c.fetchone()
+            if not row:
+                return jsonify({"error": "用户不存在"}), 404
+            if row[1] == "admin":
+                return jsonify({"error": "不能删除超级管理员"}), 400
+            c.execute("DELETE FROM console_users WHERE id = %s", (user_id,))
+            conn.commit()
+        finally:
+            conn.close()
     return jsonify({"ok": True})
 
 
@@ -325,19 +362,24 @@ def api_user_role(user_id):
     if new_role not in ("admin", "senior", "junior"):
         return jsonify({"error": "无效的角色"}), 400
 
-    db, lk = _get_db()
+    get_conn, lk = _get_db()
     with lk:
-        c = db.cursor()
-        c.execute("SELECT username, role FROM console_users WHERE id = ?", (user_id,))
-        row = c.fetchone()
-        if not row:
-            return jsonify({"error": "用户不存在"}), 404
-        # yofc 必须保持 admin
-        if row[0] == "yofc" and new_role != "admin":
-            return jsonify({"error": "不能降级 yofc 超级管理员角色"}), 400
-        c.execute("UPDATE console_users SET role = ? WHERE id = ?", (new_role, user_id))
-        db.commit()
+        conn = get_conn()
+        try:
+            c = conn.cursor()
+            c.execute("SELECT username, role FROM console_users WHERE id = %s", (user_id,))
+            row = c.fetchone()
+            if not row:
+                return jsonify({"error": "用户不存在"}), 404
+            # yofc 必须保持 admin
+            if row[0] == "yofc" and new_role != "admin":
+                return jsonify({"error": "不能降级 yofc 超级管理员角色"}), 400
+            c.execute("UPDATE console_users SET role = %s WHERE id = %s", (new_role, user_id))
+            conn.commit()
+        finally:
+            conn.close()
     return jsonify({"ok": True, "message": f"角色已更新为 {new_role}"})
+
 
 @console_bp.route("/api/instances/verify", methods=["POST"])
 @login_required

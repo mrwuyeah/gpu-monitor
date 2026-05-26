@@ -9,9 +9,9 @@ def init_auth(app, db_conn, lock):
 
 
 def _get_db():
-    db = current_app.config.get("DB_CONN")
+    get_conn = current_app.config.get("DB_CONN")
     lk = current_app.config.get("DB_LOCK")
-    return db, lk
+    return get_conn, lk
 
 
 def _extract_token():
@@ -31,14 +31,18 @@ def api_token_required(f):
         if not token:
             return jsonify({"error": "未授权，需要 API 令牌"}), 401
 
-        db, lk = _get_db()
-        if not db:
+        get_conn, lk = _get_db()
+        if not get_conn:
             return jsonify({"error": "服务未初始化"}), 500
 
         with lk:
-            c = db.cursor()
-            c.execute("SELECT value FROM api_settings WHERE key = 'api_token'")
-            row = c.fetchone()
+            conn = get_conn()
+            try:
+                c = conn.cursor()
+                c.execute("SELECT `value` FROM api_settings WHERE `key` = 'api_token'")
+                row = c.fetchone()
+            finally:
+                conn.close()
 
         if not row or token != row[0]:
             return jsonify({"error": "API 令牌无效"}), 401
@@ -68,12 +72,16 @@ def api_or_session_required(f):
         # 1) Try API token first
         token = _extract_token()
         if token:
-            db, lk = _get_db()
-            if db:
+            get_conn, lk = _get_db()
+            if get_conn:
                 with lk:
-                    c = db.cursor()
-                    c.execute("SELECT value FROM api_settings WHERE key = 'api_token'")
-                    row = c.fetchone()
+                    conn = get_conn()
+                    try:
+                        c = conn.cursor()
+                        c.execute("SELECT `value` FROM api_settings WHERE `key` = 'api_token'")
+                        row = c.fetchone()
+                    finally:
+                        conn.close()
                 if row and token == row[0]:
                     return f(*args, **kwargs)
 
@@ -87,26 +95,34 @@ def api_or_session_required(f):
 
 def get_api_token():
     """从数据库读取当前 API 令牌明文，用于页面注入"""
-    db, lk = _get_db()
-    if not db:
+    get_conn, lk = _get_db()
+    if not get_conn:
         return None
     with lk:
-        c = db.cursor()
-        c.execute("SELECT value FROM api_settings WHERE key = 'api_token'")
-        row = c.fetchone()
+        conn = get_conn()
+        try:
+            c = conn.cursor()
+            c.execute("SELECT `value` FROM api_settings WHERE `key` = 'api_token'")
+            row = c.fetchone()
+        finally:
+            conn.close()
     return row[0] if row else None
 
 
 def get_console_user(username):
     """查询控制台用户（含角色）"""
-    db, lk = _get_db()
+    get_conn, lk = _get_db()
     with lk:
-        c = db.cursor()
-        c.execute(
-            "SELECT id, username, password_hash, role FROM console_users WHERE username = ?",
-            (username,),
-        )
-        return c.fetchone()
+        conn = get_conn()
+        try:
+            c = conn.cursor()
+            c.execute(
+                "SELECT id, username, password_hash, role FROM console_users WHERE username = %s",
+                (username,),
+            )
+            return c.fetchone()
+        finally:
+            conn.close()
 
 
 def get_current_user_role():
@@ -133,37 +149,3 @@ def admin_required(f):
     return wrapper
 
 
-def role_at_least(min_role):
-    """检查当前用户角色是否达到指定级别。admin > senior > junior"""
-    levels = {"admin": 3, "senior": 2, "junior": 1}
-    required = levels.get(min_role, 1)
-    role = get_current_user_role()
-    user_level = levels.get(role, 0)
-    return user_level >= required
-
-
-def can_access_instance(allowed_roles_str):
-    """检查当前用户是否有权访问指定 allowed_roles 的实例"""
-    role = get_current_user_role()
-    if role == "admin":
-        return True
-    allowed = [x.strip() for x in (allowed_roles_str or "").split(",") if x.strip()]
-    return role in allowed
-
-
-def role_at_least(min_role):
-    """检查当前用户角色是否达到指定级别。admin > senior > junior"""
-    levels = {"admin": 3, "senior": 2, "junior": 1}
-    required = levels.get(min_role, 1)
-    role = get_current_user_role()
-    user_level = levels.get(role, 0)
-    return user_level >= required
-
-
-def can_access_instance(allowed_roles_str):
-    """检查当前用户是否有权访问指定 allowed_roles 的实例"""
-    role = get_current_user_role()
-    if role == "admin":
-        return True
-    allowed = [x.strip() for x in (allowed_roles_str or "").split(",") if x.strip()]
-    return role in allowed

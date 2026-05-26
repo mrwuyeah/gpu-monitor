@@ -58,6 +58,7 @@ python -m PyInstaller ^
     --hidden-import click ^
     --hidden-import markupsafe ^
     --hidden-import psutil ^
+    --hidden-import pymysql ^
     --exclude PyQt5 ^
     --exclude PySide6 ^
     --exclude matplotlib ^

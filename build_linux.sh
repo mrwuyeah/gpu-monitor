@@ -55,6 +55,7 @@ python3 -m PyInstaller \
     --hidden-import=psutil \
     --hidden-import=auth \
     --hidden-import=console_routes \
+    --hidden-import=pymysql \
     --name gpu_monitor \
     app.py
 
