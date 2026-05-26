@@ -966,6 +966,22 @@ def query_history():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/hosts')
+@api_token_required
+def list_hosts():
+    """返回 samples 表中所有不同的主机名"""
+    get_conn, lk = _get_db()
+    with lk:
+        conn = get_conn()
+        try:
+            c = conn.cursor()
+            c.execute("SELECT DISTINCT host FROM samples WHERE host != '' AND host IS NOT NULL ORDER BY host ASC")
+            rows = c.fetchall()
+        finally:
+            conn.close()
+    return jsonify({"hosts": [r[0] for r in rows]})
+
+
 @app.route('/api/query-history-chart')
 @api_token_required
 def query_history_chart():

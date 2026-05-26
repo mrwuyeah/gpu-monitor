@@ -39,7 +39,11 @@
                     <option value="1">GPU1</option>
                 </select>
             </label>
-            <label>主机: <input id="hostFilter" placeholder="留空=全部" style="width:130px;padding:8px 10px;border-radius:6px;border:1px solid #dde3ea;"></label>
+            <label>主机: 
+                <select id="hostFilter" style="padding:8px 10px;border-radius:6px;border:1px solid #dde3ea;">
+                    <option value="">全部</option>
+                </select>
+            </label>
             <button id="queryBtn">查询</button>
         </div>
 
@@ -344,6 +348,24 @@
             if (currentPage < totalPages) loadTablePage(totalPages);
         });
 
+        // 加载主机列表
+        async function loadHosts() {
+            try {
+                const headers = { 'Authorization': 'Bearer ' + (window.__API_TOKEN__ || '') };
+                const res = await fetch('/api/hosts', { headers });
+                const data = await res.json();
+                const sel = document.getElementById('hostFilter');
+                if (data.hosts && data.hosts.length) {
+                    data.hosts.forEach(h => {
+                        const opt = document.createElement('option');
+                        opt.value = h;
+                        opt.textContent = h;
+                        sel.appendChild(opt);
+                    });
+                }
+            } catch (e) { /* ignore */ }
+        }
+
         // 页面首次打开默认最近1小时
         window.addEventListener('load', () => {
             // 设置返回链接（保留 token）
@@ -352,6 +374,7 @@
                 var link = document.getElementById('returnLink');
                 if (link) link.href = '/?token=' + encodeURIComponent(token);
             }
+            loadHosts();
             setRangeHours(1);
         });
     </script>
