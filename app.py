@@ -976,8 +976,7 @@ def query_history():
 @api_token_required
 def list_hosts():
     """返回 samples 表中所有不同的主机名"""
-    get_conn, lk = _get_db()
-    with lk:
+    with lock:
         conn = get_conn()
         try:
             c = conn.cursor()

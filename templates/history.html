@@ -144,7 +144,8 @@
             const visibleTickSet = buildVisibleTickSet(labels.length, 7);
             const datasetsByGpu = {};
             chartRows.forEach(r => {
-                const k = 'GPU ' + r.gpu_index;
+                const hostTag = r.host ? r.host + ' ' : '';
+                const k = hostTag + 'GPU ' + r.gpu_index;
                 if (!datasetsByGpu[k]) {
                     datasetsByGpu[k] = {
                         label: k,
