@@ -1,6 +1,6 @@
 # DBeaver 连接 MySQL 配置指南
 
-> 适用场景：从本地 SQLite 迁移到公司内网 MySQL 数据库（10.99.19.243:3306）
+> 适用场景：从本地 SQLite 迁移到公司内网 MySQL 数据库（10.70.19.243:3306）
 
 ---
 
@@ -21,7 +21,7 @@
 
 | 参数 | 值 |
 |------|------|
-| **主机 (Host)** | `10.99.19.243` |
+| **主机 (Host)** | `10.70.19.243` |
 | **端口 (Port)** | `3306` |
 | **数据库 (Database)** | `gpu_monitor`（如不存在，可先填 `mysql`，后面再创建） |
 | **用户名 (Username)** | `model-monitor` |
@@ -42,7 +42,7 @@
 
 - 点击 **测试连接 (Test Connection)**
 - 如果出现绿色勾 ✓，说明连接成功
-- 如果失败，检查网络连通性：`ping 10.99.19.243`、`telnet 10.99.19.243 3306`
+- 如果失败，检查网络连通性：`ping 10.70.19.243`、`telnet 10.70.19.243 3306`
 
 ---
 
@@ -106,8 +106,8 @@ CREATE TABLE IF NOT EXISTS monitor_instances (
     base_url TEXT NOT NULL,
     metrics_url TEXT,
     notes TEXT,
-    token TEXT DEFAULT '',
-    allowed_roles TEXT DEFAULT 'admin,senior,junior',
+    token VARCHAR(512) DEFAULT '',
+    allowed_roles VARCHAR(255) DEFAULT 'admin,senior,junior',
     created_at VARCHAR(255),
     updated_at VARCHAR(255)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS api_settings (
 ### Windows（CMD）
 
 ```cmd
-set DB_HOST=10.99.19.243
+set DB_HOST=10.70.19.243
 set DB_PORT=3306
 set DB_USER=model-monitor
 set DB_PASSWORD=iVDbNxcRAU1A/CcD
@@ -144,7 +144,7 @@ python app.py
 ### Windows（PowerShell）
 
 ```powershell
-$env:DB_HOST="10.99.19.243"
+$env:DB_HOST="10.70.19.243"
 $env:DB_PORT="3306"
 $env:DB_USER="model-monitor"
 $env:DB_PASSWORD="iVDbNxcRAU1A/CcD"
@@ -155,7 +155,7 @@ python app.py
 ### Linux / macOS
 
 ```bash
-export DB_HOST=10.99.19.243
+export DB_HOST=10.70.19.243
 export DB_PORT=3306
 export DB_USER=model-monitor
 export DB_PASSWORD='iVDbNxcRAU1A/CcD'

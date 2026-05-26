@@ -67,7 +67,7 @@ python3 -m PyInstaller \
     --hidden-import=jinja2 --hidden-import=itsdangerous \
     --hidden-import=click --hidden-import=markupsafe \
     --hidden-import=psutil --hidden-import=auth \
-    --hidden-import=console_routes \
+    --hidden-import=console_routes --hidden-import=pymysql \
     --name gpu_monitor app.py
 
 ok "打包完成！可执行文件: ${INSTALL_DIR}/dist/gpu_monitor"

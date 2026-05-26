@@ -14,7 +14,7 @@
 - 多 vLLM 实例自动发现（原生 PID 匹配 / 端口扫描）
 - vLLM Prometheus 指标聚合（KV Cache 使用率、请求数、Token 数）
 - 控制台多实例管理（基于角色的权限控制）
-- SQLite 持久化历史数据与趋势图表
+- MySQL 持久化历史数据与趋势图表
 
 ---
 
@@ -143,7 +143,7 @@ sudo systemctl status gpu-monitor.service
 
 首次启动时终端会打印自动生成的 API 令牌，请及时保存。
 
-> 控制台默认超级管理员：`yofc`，首次启动时自动创建，密码在启动日志中可见（若遗失可通过 SQLite 手动重置）。
+> 控制台默认超级管理员：`yofc`，首次启动时自动创建，密码在启动日志中可见（若遗失可通过数据库手动重置）。
 
 ---
 
@@ -151,10 +151,35 @@ sudo systemctl status gpu-monitor.service
 
 应用首次运行时会自动完成：
 
-1. 创建 `gpu_usage.db`（SQLite 数据库及全部表结构）
+1. 连接 MySQL 数据库，自动创建全部表结构
 2. 创建默认超级管理员 `yofc`
 3. 生成随机 API 令牌（打印在终端）
 4. 生成持久化 Session 密钥
+
+---
+
+## 数据库配置
+
+默认连接 `10.70.19.243:3306`，用户 `model-monitor`，密码 `iVDbNxcRAU1A/CcD`，库名 `gpu_monitor`。
+
+通过环境变量自定义：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DB_HOST` | `10.70.19.243` | 数据库地址 |
+| `DB_PORT` | `3306` | 数据库端口 |
+| `DB_USER` | `model-monitor` | 数据库用户 |
+| `DB_PASSWORD` | `iVDbNxcRAU1A/CcD` | 数据库密码 |
+| `DB_NAME` | `gpu_monitor` | 数据库名 |
+
+示例（指向其他 MySQL）：
+
+```bash
+export DB_HOST=192.168.1.100
+export DB_USER=root
+export DB_PASSWORD=mysecret
+./dist/gpu_monitor
+```
 
 ---
 
@@ -173,7 +198,7 @@ sudo systemctl status gpu-monitor.service
 
 ```
 flask, werkzeug, jinja2, itsdangerous, click, markupsafe,
-psutil, auth, console_routes
+psutil, auth, console_routes, pymysql
 ```
 
 ---
@@ -198,7 +223,7 @@ psutil, auth, console_routes
 确认 vLLM 的 `/metrics` 端点有 `vllm:kv_cache_usage_perc` 指标。系统使用 `总显存 × kv_usage` 推算显存占用。
 
 **Q: 数据库写权限？**
-可执行文件所在目录需要写权限（`gpu_usage.db` 创建于此）。
+应用需要访问 MySQL 数据库（默认 10.70.19.243:3306），确保网络可达。
 
 ---
 

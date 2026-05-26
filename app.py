@@ -36,10 +36,10 @@ LOG_FILE = os.path.join(BASE_DIR, "gpu_monitor_error.log")
 
 # MySQL configuration — set via environment variables or defaults
 DB_CONFIG = {
-    "host": os.environ.get("DB_HOST", "localhost"),
+    "host": os.environ.get("DB_HOST", "10.70.19.243"),
     "port": int(os.environ.get("DB_PORT", "3306")),
-    "user": os.environ.get("DB_USER", "root"),
-    "password": os.environ.get("DB_PASSWORD", "123456"),
+    "user": os.environ.get("DB_USER", "model-monitor"),
+    "password": os.environ.get("DB_PASSWORD", "iVDbNxcRAU1A/CcD"),
     "database": os.environ.get("DB_NAME", "gpu_monitor"),
     "charset": "utf8mb4",
 }
