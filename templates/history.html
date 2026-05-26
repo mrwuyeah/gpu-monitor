@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GPU历史数据查询</title>
     <script>window.__API_TOKEN__ = new URLSearchParams(window.location.search).get("token") || "";</script>
+    <script>window.__HOST_NAME__ = "{{ current_host }}";</script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/modern-css-reset/dist/reset.min.css">
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:#f6f8fb; color:#111; padding:24px; }
@@ -363,19 +364,22 @@
                         opt.textContent = h;
                         sel.appendChild(opt);
                     });
+                    if (window.__HOST_NAME__ && data.hosts.includes(window.__HOST_NAME__)) {
+                        sel.value = window.__HOST_NAME__;
+                    }
                 }
             } catch (e) { /* ignore */ }
         }
 
         // 页面首次打开默认最近1小时
-        window.addEventListener('load', () => {
+        window.addEventListener('load', async () => {
             // 设置返回链接（保留 token）
             var token = window.__API_TOKEN__ || '';
             if (token) {
                 var link = document.getElementById('returnLink');
                 if (link) link.href = '/?token=' + encodeURIComponent(token);
             }
-            loadHosts();
+            await loadHosts();
             setRangeHours(1);
         });
     </script>

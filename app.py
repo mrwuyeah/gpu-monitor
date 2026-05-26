@@ -1070,7 +1070,7 @@ def get_alerts():
 @app.route('/history')
 def history_page():
     """历史页（需通过控制台携带 ?token= 访问）"""
-    response = make_response(render_template('history.html'))
+    response = make_response(render_template('history.html', current_host=_HOST_NAME))
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
